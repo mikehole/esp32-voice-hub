@@ -2,7 +2,7 @@
 
 A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring a radial menu UI, push-to-talk voice interaction, and a warm Nordic design language.
 
-![UI Mockup](assets/mockups/ui-v3-nordic-warm.svg)
+![UI Mockup](assets/mockups/ui-v5a-blue-mono.svg)
 
 ## Features
 
