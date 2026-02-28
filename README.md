@@ -1,6 +1,10 @@
 # ESP32 Voice Hub
 
-A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring a radial menu UI, push-to-talk voice interaction, and a warm Nordic design language.
+A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring a radial wedge menu UI, push-to-talk voice interaction, and a blue mono design language.
+
+<p align="center">
+  <img src="https://www.waveshare.com/w/upload/thumb/6/6d/ESP32-S3-Knob-Touch-LCD-1.8-1.jpg/300px-ESP32-S3-Knob-Touch-LCD-1.8-1.jpg" alt="Waveshare ESP32-S3 Knob" width="250"/>
+</p>
 
 ![UI Mockup](assets/mockups/ui-v5a-blue-mono.svg)
 
@@ -8,7 +12,7 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 
 - 🎤 **Push-to-talk voice assistant** — Whisper STT → AI → TTS
 - 🎛️ **Radial menu navigation** — rotary encoder + touch gestures
-- 🌅 **Organic Nordic UI** — warm amber accents, soft shapes, breathing room
+- 🔵 **Blue Mono UI** — deep navy background, cyan accents, matches hardware bezel
 - 🔊 **External speaker output** — 3.5mm DAC with PCM5101A
 - 📳 **Haptic feedback** — DRV2605 vibration motor
 - 🖨️ **3D printable enclosure** — custom stand/dock designs
@@ -63,7 +67,7 @@ esp32-voice-hub/
 
 ## Design Language
 
-**Organic Nordic Minimal** — warm charcoal background, amber/sun selection accents, soft organic shapes, generous whitespace.
+**Blue Mono** — deep navy background (#0F2744), cyan selection accents (#5DADE2), 8-wedge Trivial Pursuit layout, designed to complement the blue aluminium bezel.
 
 See [docs/design.md](docs/design.md) for full palette and guidelines.
 
