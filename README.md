@@ -2,7 +2,9 @@
 
 A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring a radial wedge menu UI, push-to-talk voice interaction, and a blue mono design language.
 
-**Hardware:** [Waveshare ESP32-S3-Knob-Touch-LCD-1.8](https://www.waveshare.com/wiki/ESP32-S3-Knob-Touch-LCD-1.8) (see wiki for photos)
+<p align="center">
+  <img src="assets/hardware-photo.jpg" alt="Waveshare ESP32-S3 Knob" width="250"/>
+</p>
 
 ![UI Mockup](assets/mockups/ui-v5a-blue-mono.svg)
 
