@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- v5b: Warm on cool — amber selection on slate blue background -->
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Nord-style slate blue background -->
+    <radialGradient id="bgNord" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" style="stop-color:#3B4252"/>
+      <stop offset="100%" style="stop-color:#2E3440"/>
+    </radialGradient>
+    
+    <!-- Selected wedge - warm amber (pops against blue) -->
+    <linearGradient id="wedgeSelectedAmber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F5C06A"/>
+      <stop offset="100%" style="stop-color:#D4923A"/>
+    </linearGradient>
+    
+    <!-- Unselected wedge - cool slate -->
+    <linearGradient id="wedgeInactiveSlate" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#434C5E"/>
+      <stop offset="100%" style="stop-color:#3B4252"/>
+    </linearGradient>
+    
+    <!-- Warm amber glow -->
+    <filter id="amberGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" 
+        values="1 0 0 0 0.15
+                0 0.6 0 0 0.08
+                0 0 0.3 0 0
+                0 0 0 0.5 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <clipPath id="roundClip">
+    <circle cx="200" cy="200" r="180"/>
+  </clipPath>
+  
+  <g clip-path="url(#roundClip)">
+    <circle cx="200" cy="200" r="180" fill="url(#bgNord)"/>
+    
+    <!-- 8 Wedges -->
+    <!-- Wedge 0: Talk (top) - SELECTED amber -->
+    <path d="M 200 45 A 155 155 0 0 1 309.6 90.4 L 277.3 122.7 A 75 75 0 0 0 200 125 Z" 
+          fill="url(#wedgeSelectedAmber)" filter="url(#amberGlow)" opacity="0.95"/>
+    
+    <!-- Wedge 1-7: Unselected slate -->
+    <path d="M 309.6 90.4 A 155 155 0 0 1 355 200 L 275 200 A 75 75 0 0 0 277.3 122.7 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    <path d="M 355 200 A 155 155 0 0 1 309.6 309.6 L 277.3 277.3 A 75 75 0 0 0 275 200 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    <path d="M 309.6 309.6 A 155 155 0 0 1 200 355 L 200 275 A 75 75 0 0 0 277.3 277.3 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    <path d="M 200 355 A 155 155 0 0 1 90.4 309.6 L 122.7 277.3 A 75 75 0 0 0 200 275 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    <path d="M 90.4 309.6 A 155 155 0 0 1 45 200 L 125 200 A 75 75 0 0 0 122.7 277.3 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    <path d="M 45 200 A 155 155 0 0 1 90.4 90.4 L 122.7 122.7 A 75 75 0 0 0 125 200 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    <path d="M 90.4 90.4 A 155 155 0 0 1 200 45 L 200 125 A 75 75 0 0 0 122.7 122.7 Z" fill="url(#wedgeInactiveSlate)" opacity="0.6"/>
+    
+    <!-- Gap lines -->
+    <g stroke="#2E3440" stroke-width="3">
+      <line x1="200" y1="45" x2="200" y2="125"/>
+      <line x1="309.6" y1="90.4" x2="277.3" y2="122.7"/>
+      <line x1="355" y1="200" x2="275" y2="200"/>
+      <line x1="309.6" y1="309.6" x2="277.3" y2="277.3"/>
+      <line x1="200" y1="355" x2="200" y2="275"/>
+      <line x1="90.4" y1="309.6" x2="122.7" y2="277.3"/>
+      <line x1="45" y1="200" x2="125" y2="200"/>
+      <line x1="90.4" y1="90.4" x2="122.7" y2="122.7"/>
+    </g>
+    
+    <!-- Icons -->
+    <!-- Selected: dark icon on amber -->
+    <g transform="translate(243, 72)">
+      <ellipse cx="0" cy="0" rx="6" ry="10" fill="#2E3440"/>
+      <path d="M -9 6 Q -9 14, 0 16 Q 9 14, 9 6" fill="none" stroke="#2E3440" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <!-- Unselected: light grey -->
+    <g transform="translate(320, 143)" opacity="0.6">
+      <ellipse cx="0" cy="0" rx="10" ry="6" fill="#D8DEE9"/>
+    </g>
+    <g transform="translate(320, 257)" opacity="0.6">
+      <ellipse cx="-3" cy="5" rx="5" ry="3" fill="#D8DEE9" transform="rotate(-15)"/>
+      <line x1="2" y1="3" x2="2" y2="-8" stroke="#D8DEE9" stroke-width="2"/>
+    </g>
+    <g transform="translate(243, 328)" opacity="0.6">
+      <circle cx="0" cy="0" r="8" fill="none" stroke="#D8DEE9" stroke-width="2"/>
+    </g>
+    <g transform="translate(157, 328)" opacity="0.6">
+      <ellipse cx="0" cy="-2" rx="7" ry="8" fill="none" stroke="#D8DEE9" stroke-width="2"/>
+    </g>
+    <g transform="translate(80, 257)" opacity="0.6">
+      <path d="M 0 -8 L 8 0 L 5 0 L 5 6 L -5 6 L -5 0 L -8 0 Z" fill="#D8DEE9"/>
+    </g>
+    <g transform="translate(80, 143)" opacity="0.6">
+      <rect x="-7" y="-5" width="14" height="12" rx="2" fill="none" stroke="#D8DEE9" stroke-width="2"/>
+    </g>
+    <g transform="translate(157, 72)" opacity="0.6">
+      <circle cx="0" cy="0" r="6" fill="none" stroke="#D8DEE9" stroke-width="2"/>
+    </g>
+    
+    <!-- Centre hub -->
+    <circle cx="200" cy="200" r="65" fill="#2E3440"/>
+    <circle cx="200" cy="200" r="63" fill="none" stroke="#3B4252" stroke-width="2"/>
+    
+    <!-- Labels -->
+    <text x="200" y="195" text-anchor="middle" fill="#ECEFF4" font-family="system-ui" font-size="20" font-weight="400" letter-spacing="2">Talk</text>
+    <text x="200" y="218" text-anchor="middle" fill="#88C0D0" font-family="system-ui" font-size="11" font-weight="300" letter-spacing="1">press to speak</text>
+    
+    <!-- Page dots -->
+    <circle cx="185" cy="365" r="4" fill="#EBCB8B"/>
+    <circle cx="200" cy="365" r="3" fill="#4C566A"/>
+    <circle cx="215" cy="365" r="3" fill="#4C566A"/>
+  </g>
+</svg>

@@ -1,65 +1,49 @@
-# Design Language: Organic Nordic Minimal
+# Design Language: Blue Mono
 
-A warm, calm, and approachable design language for round displays.
+A cool, cohesive design language that complements the blue aluminium bezel of the Waveshare Knob.
 
 ## Philosophy
 
-- **Organic over geometric** — soft curves, no sharp corners
-- **Breathing room** — generous whitespace, nothing cramped
-- **Warm neutrals** — charcoal with amber/sun accents
-- **Subtle hierarchy** — selected items glow, others recede
-- **No hard borders** — everything bleeds softly
+- **Monochrome blue** — deep navy to cyan gradient, techy and cohesive
+- **Hardware harmony** — UI flows seamlessly into the blue physical bezel
+- **Clear hierarchy** — selected wedge glows cyan, others recede
+- **Wedge segments** — Trivial Pursuit pie-slice layout, 8 per page
 
 ## Colour Palette
 
 ### Background
 | Name | Hex | Usage |
 |------|-----|-------|
-| Nordic Charcoal | `#2C2F33` | Primary background |
-| Warm Charcoal | `#3A3835` | Centre hub, cards |
-| Deep Charcoal | `#3D4147` | Gradient highlight |
+| Deep Navy | `#0F2744` | Primary background, darkest |
+| Navy | `#1E3A5F` | Gradient highlight |
+| Muted Navy | `#1A3550` | Unselected wedges |
 
 ### Accent (Selection)
 | Name | Hex | Usage |
 |------|-----|-------|
-| Sun Gold | `#F5C06A` | Selected icon, primary accent |
-| Amber | `#E8A64C` | Gradient mid-point |
-| Deep Amber | `#D4923A` | Gradient end, shadows |
+| Cyan | `#5DADE2` | Selected wedge, active icons |
+| Deep Cyan | `#2E86AB` | Selection gradient end |
 
 ### Text & Icons
 | Name | Hex | Usage |
 |------|-----|-------|
-| Cream | `#F5E6D3` | Primary text, selected icons |
-| Warm Cream | `#E8D5BC` | Secondary text |
-| Muted Stone | `#B5B0A8` | Unselected icons (40% opacity) |
-| Soft Grey | `#9A958D` | Hint text, disabled |
+| Ice White | `#ECEFF4` | Primary text |
+| Cyan | `#5DADE2` | Hint text, unselected icons |
+| Dark Navy | `#0F2744` | Icons on selected wedge |
 
 ### UI Elements
 | Name | Hex | Usage |
 |------|-----|-------|
-| Inactive Dot | `#5C5852` | Page indicators (inactive) |
-| Active Dot | `#E8A64C` | Page indicators (active) |
+| Active Dot | `#5DADE2` | Page indicator (active) |
+| Inactive Dot | `#1E3A5F` | Page indicator (inactive) |
+| Gap Line | `#0F2744` | Wedge dividers |
 
 ## Typography
 
-- **Primary font:** System sans-serif (Avenir Next, Segoe UI, or fallback)
-- **Weight:** Light (300) to Regular (400)
-- **Letter-spacing:** 1-2px for labels
-- **Case:** Sentence case for labels, no ALL CAPS
-
-## Iconography
-
-- **Style:** Organic, hand-drawn feel
-- **Stroke:** 2-2.5px, rounded caps
-- **Corners:** Always rounded, never sharp
-- **Fill:** Minimal — prefer outlines
-
-## Selection Indicator
-
-- **Shape:** Organic blob/amoeba behind selected icon
-- **Opacity:** 30-40%
-- **Glow:** Soft gaussian blur (8px), warm-tinted
-- **Animation:** Morphs smoothly between positions
+- **Primary font:** System sans-serif
+- **Weight:** Regular (400)
+- **Letter-spacing:** 2px for labels
+- **Colour:** Ice white for labels, cyan for hints
 
 ## Layout
 
@@ -67,22 +51,28 @@ A warm, calm, and approachable design language for round displays.
 - **Inner radius:** 75px (centre hub boundary)
 - **Outer radius:** 155px (wedge outer edge)
 - **Centre hub:** r=65, contains label + hint text
-- **Gap lines:** 3px charcoal dividers between wedges
+- **Gap lines:** 3px deep navy dividers between wedges
 - **Icons:** Positioned at midpoint of each wedge arc (~r=115)
-- **Page dots:** Bottom centre, organic ellipses
+- **Page dots:** Bottom centre
+
+## Selection Indicator
+
+- **Shape:** Full wedge fill with cyan gradient
+- **Glow:** Soft cyan blur (5px), blue-tinted
+- **Opacity:** 95% selected, 60% unselected
 
 ## States
 
 | State | Visual Treatment |
 |-------|------------------|
-| **Idle** | Default layout, selected item highlighted |
-| **Listening** | Centre pulses amber, mic icon animates |
-| **Thinking** | Subtle rotation animation on centre |
-| **Speaking** | Waveform or speaker icon animation |
+| **Idle** | Default layout, selected wedge cyan |
+| **Listening** | Centre pulses cyan, mic icon animates |
+| **Thinking** | Subtle rotation or pulse animation |
+| **Speaking** | Waveform or ripple effect |
 | **Error** | Brief red flash, returns to idle |
 
 ## Animation Principles
 
 - **Duration:** 200-400ms for transitions
-- **Easing:** Ease-out for selections, ease-in-out for morphs
+- **Easing:** Ease-out for selections
 - **Haptics:** Light tick on selection change
