@@ -63,10 +63,13 @@ A warm, calm, and approachable design language for round displays.
 
 ## Layout
 
-- **Icons:** 6 positions at 60° intervals, r=140 from centre
-- **Centre hub:** r=55, contains label + hint text
+- **Wedges:** 8 pie-slice segments at 45° each (Trivial Pursuit style)
+- **Inner radius:** 75px (centre hub boundary)
+- **Outer radius:** 155px (wedge outer edge)
+- **Centre hub:** r=65, contains label + hint text
+- **Gap lines:** 3px charcoal dividers between wedges
+- **Icons:** Positioned at midpoint of each wedge arc (~r=115)
 - **Page dots:** Bottom centre, organic ellipses
-- **Margins:** Generous — icons should not feel crowded
 
 ## States
 
