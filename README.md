@@ -17,36 +17,65 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 - 📳 **Haptic feedback** — DRV2605 vibration motor
 - 🖨️ **3D printable enclosure** — custom stand/dock designs
 
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Framework** | Arduino + ESP-IDF |
+| **UI Library** | [LVGL](https://lvgl.io/) v8/v9 |
+| **Display Driver** | ST77916 (QSPI) via esp_lcd |
+| **Touch Driver** | CST816 (I2C) |
+| **Build System** | PlatformIO |
+| **IDE** | VS Code + PlatformIO extension |
+
+### Why Arduino/C++ over MicroPython?
+
+The ST77916 display uses **QSPI** (Quad SPI), which isn't supported in standard MicroPython. While custom firmware could be built, Arduino/LVGL provides:
+- Out-of-the-box QSPI display support
+- Better performance for smooth UI animations
+- First-class LVGL integration
+- Existing reference implementations (see [Roon Knob](https://github.com/muness/roon-knob))
+
 ## Hardware
 
 | Component | Details |
 |-----------|---------|
 | **Board** | [Waveshare ESP32-S3-Knob-Touch-LCD-1.8](https://www.waveshare.com/wiki/ESP32-S3-Knob-Touch-LCD-1.8) |
-| **Display** | 1.8" round LCD, 360×360, touch (CST816) |
+| **Display** | 1.8" round LCD, 360×360, ST77916 (QSPI) |
+| **Touch** | CST816 capacitive (I2C) |
 | **Audio Out** | PCM5101A DAC, 3.5mm jack |
-| **Audio In** | Onboard microphone |
+| **Audio In** | Onboard digital microphone |
 | **Input** | Rotary encoder with push button |
 | **Haptics** | DRV2605 vibration motor |
-| **MCU** | ESP32-S3 (8MB PSRAM, 16MB Flash) |
+| **MCU** | ESP32-S3R8 (8MB PSRAM, 16MB Flash) |
+
+⚠️ **Note:** This board has dual MCUs. The ESP32-S3 handles the display/UI, while a secondary ESP32 handles Bluetooth audio. See [docs/hardware-notes.md](docs/hardware-notes.md) for flashing details.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.10+
-- [esptool](https://github.com/espressif/esptool) for flashing
+- [VS Code](https://code.visualstudio.com/)
+- [PlatformIO extension](https://platformio.org/install/ide?install=vscode)
 - USB-C cable
 
-### Flash Firmware
+### Clone & Build
 
 ```bash
-# Coming soon — MicroPython + LVGL firmware
+git clone https://github.com/mikehole/esp32-voice-hub.git
+cd esp32-voice-hub/firmware/platformio
+
+# Build
+pio run
+
+# Upload (device on COM4, adjust for your system)
+pio run -t upload --upload-port COM4
 ```
 
-### Connect to REPL
+### Monitor Serial Output
 
 ```bash
-# Coming soon
+pio device monitor -p COM4 -b 115200
 ```
 
 ## Project Structure
@@ -54,15 +83,18 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 ```
 esp32-voice-hub/
 ├── firmware/
-│   ├── micropython/    # MicroPython + LVGL code
-│   └── platformio/     # C++ fallback (ESP-IDF/Arduino)
+│   └── platformio/     # Main firmware (Arduino + LVGL)
+│       ├── src/        # Source code
+│       ├── lib/        # Project-specific libraries
+│       └── platformio.ini
 ├── assets/
 │   ├── icons/          # SVG source icons
 │   └── mockups/        # UI design mockups
 ├── enclosure/
 │   └── stl/            # 3D printable parts
 └── docs/
-    └── design.md       # UI design language documentation
+    ├── design.md       # UI design language
+    └── hardware-notes.md  # Flashing & hardware details
 ```
 
 ## Design Language
@@ -75,12 +107,23 @@ See [docs/design.md](docs/design.md) for full palette and guidelines.
 
 - [x] Hardware selection
 - [x] UI design mockups
-- [ ] Flash LVGL MicroPython firmware
-- [ ] Display + knob proof of concept
+- [x] Hardware bring-up (flashing, USB detection)
+- [ ] PlatformIO project setup
+- [ ] Display driver (ST77916 QSPI)
+- [ ] Touch driver (CST816 I2C)
+- [ ] LVGL integration
+- [ ] Radial wedge menu UI
+- [ ] Encoder input handling
 - [ ] Audio loopback test (mic → speaker)
-- [ ] Radial menu implementation
-- [ ] Voice assistant integration
+- [ ] Voice assistant integration (WiFi → OpenClaw)
 - [ ] 3D printed enclosure
+
+## Resources
+
+- [Waveshare Wiki](https://www.waveshare.com/wiki/ESP32-S3-Knob-Touch-LCD-1.8) — Official documentation
+- [Roon Knob](https://github.com/muness/roon-knob) — Reference project using same hardware
+- [ESP32_Display_Panel](https://github.com/esp-arduino-libs/ESP32_Display_Panel) — Espressif's display library
+- [LVGL Documentation](https://docs.lvgl.io/) — UI library docs
 
 ## License
 
