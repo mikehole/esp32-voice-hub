@@ -13,7 +13,7 @@ void lcd_bl_pwm_bsp_init(uint16_t duty)
     .duty_resolution = LEDC_TIMER_8_BIT, //256
     .timer_num =  LEDC_TIMER_3,
     .freq_hz = 50 * 1000,
-    .clk_cfg = LEDC_SLOW_CLK_RC_FAST,
+    .clk_cfg = LEDC_AUTO_CLK,
   };
   ledc_channel_config_t ledc_conf = 
   {
