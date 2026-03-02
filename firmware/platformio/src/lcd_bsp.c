@@ -1,5 +1,5 @@
 /**
- * LCD BSP - Simplified for ESP-IDF 4.4 / Arduino
+ * LCD BSP - Direct SPI implementation for ESP-IDF 4.4 / Arduino
  * Based on Waveshare ESP32-S3-Knob-Touch-LCD-1.8 demo
  */
 
@@ -7,11 +7,11 @@
 #include "esp_lcd_sh8601.h"
 #include "lcd_config.h"
 #include "cst816.h"
+#include "esp_timer.h"
 
 static SemaphoreHandle_t lvgl_mux = NULL;
-static esp_lcd_panel_io_handle_t io_handle = NULL;
-
-#define LCD_HOST SPI2_HOST
+static sh8601_handle_t lcd_handle;
+static lv_disp_drv_t *s_disp_drv = NULL;
 
 // SH8601 initialization sequence
 static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
@@ -75,16 +75,19 @@ static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x36, {0x00}, 1, 0},      // Memory access control
 };
 
-static bool example_notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+static void flush_done_cb(void *user_data)
 {
-    lv_disp_drv_t *disp_driver = (lv_disp_drv_t *)user_ctx;
-    lv_disp_flush_ready(disp_driver);
-    return false;
+    if (s_disp_drv) {
+        lv_disp_flush_ready(s_disp_drv);
+    }
 }
 
 static void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
 {
-    sh8601_draw_bitmap(io_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, color_map);
+    s_disp_drv = drv;
+    sh8601_draw_bitmap(&lcd_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, color_map);
+    // Note: flush_ready called in callback
+    lv_disp_flush_ready(drv);  // For now, synchronous
 }
 
 void example_lvgl_rounder_cb(struct _lv_disp_drv_t *disp_drv, lv_area_t *area)
@@ -149,27 +152,15 @@ void lcd_lvgl_Init(void)
     static lv_disp_draw_buf_t disp_buf;
     static lv_disp_drv_t disp_drv;
 
-    // Initialize QSPI bus
-    const spi_bus_config_t buscfg = SH8601_PANEL_BUS_QSPI_CONFIG(
-        EXAMPLE_PIN_NUM_LCD_PCLK,
-        EXAMPLE_PIN_NUM_LCD_DATA0,
-        EXAMPLE_PIN_NUM_LCD_DATA1,
-        EXAMPLE_PIN_NUM_LCD_DATA2,
-        EXAMPLE_PIN_NUM_LCD_DATA3,
-        EXAMPLE_LCD_H_RES * EXAMPLE_LCD_V_RES * LCD_BIT_PER_PIXEL / 8
-    );
-    ESP_ERROR_CHECK_WITHOUT_ABORT(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
-
-    // Initialize panel IO
-    const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(
-        EXAMPLE_PIN_NUM_LCD_CS,
-        example_notify_lvgl_flush_ready,
-        &disp_drv
-    );
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
-
     // Initialize display
-    sh8601_init(io_handle, EXAMPLE_PIN_NUM_LCD_RST, lcd_init_cmds, sizeof(lcd_init_cmds) / sizeof(lcd_init_cmds[0]));
+    sh8601_init(&lcd_handle, SPI2_HOST, 
+                EXAMPLE_PIN_NUM_LCD_CS, EXAMPLE_PIN_NUM_LCD_RST,
+                EXAMPLE_PIN_NUM_LCD_PCLK,
+                EXAMPLE_PIN_NUM_LCD_DATA0, EXAMPLE_PIN_NUM_LCD_DATA1,
+                EXAMPLE_PIN_NUM_LCD_DATA2, EXAMPLE_PIN_NUM_LCD_DATA3,
+                lcd_init_cmds, sizeof(lcd_init_cmds) / sizeof(lcd_init_cmds[0]));
+    
+    sh8601_set_flush_cb(&lcd_handle, flush_done_cb, NULL);
 
     // Initialize LVGL
     lv_init();

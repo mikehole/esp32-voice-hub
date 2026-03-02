@@ -100,9 +100,7 @@
 #define LV_USE_TILEVIEW 0
 #define LV_USE_WIN 0
 
-/* OS/Tick */
-#define LV_TICK_CUSTOM 1
-#define LV_TICK_CUSTOM_INCLUDE "Arduino.h"
-#define LV_TICK_CUSTOM_SYS_TIME_EXPR (millis())
+/* OS/Tick - use our own tick via lv_tick_inc() */
+#define LV_TICK_CUSTOM 0
 
 #endif /* LV_CONF_H */

@@ -1,6 +1,6 @@
 /**
- * SH8601 AMOLED Driver - Simplified for ESP-IDF 4.4 / Arduino
- * Based on Waveshare demo code
+ * SH8601 AMOLED Driver - Direct SPI implementation for ESP-IDF 4.4
+ * Bypasses esp_lcd panel framework to support QSPI manually
  */
 
 #ifndef ESP_LCD_SH8601_H
@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 #include "driver/spi_master.h"
-#include "esp_lcd_panel_io.h"
+#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,47 +25,36 @@ typedef struct {
 } sh8601_lcd_init_cmd_t;
 
 /**
- * @brief SH8601 QSPI bus configuration macro
+ * @brief SH8601 handle
  */
-#define SH8601_PANEL_BUS_QSPI_CONFIG(clk, d0, d1, d2, d3, max_transfer) \
-    {                                                                   \
-        .sclk_io_num = clk,                                            \
-        .data0_io_num = d0,                                            \
-        .data1_io_num = d1,                                            \
-        .data2_io_num = d2,                                            \
-        .data3_io_num = d3,                                            \
-        .max_transfer_sz = max_transfer,                               \
-        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD,   \
-    }
+typedef struct {
+    spi_device_handle_t spi;
+    int rst_gpio;
+    int cs_gpio;
+} sh8601_handle_t;
 
 /**
- * @brief SH8601 QSPI panel IO configuration macro
+ * @brief Initialize SH8601 display
  */
-#define SH8601_PANEL_IO_QSPI_CONFIG(cs, cb, cb_ctx)                    \
-    {                                                                   \
-        .cs_gpio_num = cs,                                             \
-        .dc_gpio_num = -1,                                             \
-        .spi_mode = 0,                                                 \
-        .pclk_hz = 40 * 1000 * 1000,                                  \
-        .trans_queue_depth = 10,                                       \
-        .on_color_trans_done = cb,                                     \
-        .user_ctx = cb_ctx,                                            \
-        .lcd_cmd_bits = 32,                                            \
-        .lcd_param_bits = 8,                                           \
-        .flags = {                                                     \
-            .quad_mode = true,                                         \
-        },                                                             \
-    }
+esp_err_t sh8601_init(sh8601_handle_t *handle, spi_host_device_t host, int cs, int rst,
+                       int clk, int d0, int d1, int d2, int d3,
+                       const sh8601_lcd_init_cmd_t *init_cmds, size_t init_cmds_size);
 
 /**
- * @brief Initialize SH8601 panel
+ * @brief Draw bitmap to display
  */
-esp_err_t sh8601_init(esp_lcd_panel_io_handle_t io, int rst_gpio, const sh8601_lcd_init_cmd_t *init_cmds, size_t init_cmds_size);
+esp_err_t sh8601_draw_bitmap(sh8601_handle_t *handle, int x_start, int y_start, 
+                              int x_end, int y_end, const void *color_data);
 
 /**
- * @brief Draw bitmap to panel
+ * @brief Flush callback for LVGL
  */
-esp_err_t sh8601_draw_bitmap(esp_lcd_panel_io_handle_t io, int x_start, int y_start, int x_end, int y_end, const void *color_data);
+typedef void (*sh8601_flush_done_cb_t)(void *user_data);
+
+/**
+ * @brief Set flush done callback
+ */
+void sh8601_set_flush_cb(sh8601_handle_t *handle, sh8601_flush_done_cb_t cb, void *user_data);
 
 #ifdef __cplusplus
 }
