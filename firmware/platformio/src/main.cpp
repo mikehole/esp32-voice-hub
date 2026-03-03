@@ -41,12 +41,12 @@ const char* wedge_icons[] = {
 
 // Global state
 int selected_wedge = 0;
-lv_obj_t* meter = NULL;
 lv_obj_t* wedge_labels_obj[8];
 lv_obj_t* center_icon = NULL;
-lv_meter_scale_t* scale = NULL;
-lv_meter_indicator_t* indicators[8];
-bool needs_redraw = true;
+lv_obj_t* center_obj = NULL;
+uint16_t last_touch_x = 0;
+uint16_t last_touch_y = 0;
+bool was_touched = false;
 
 // Calculate which wedge was touched based on x,y coordinates
 int get_touched_wedge(int x, int y) {
@@ -72,58 +72,14 @@ int get_touched_wedge(int x, int y) {
     return wedge;
 }
 
-// Update the UI to reflect current selection
-void update_selection() {
-    // Update meter arc colors
-    for (int i = 0; i < 8; i++) {
-        lv_color_t color;
-        if (i == selected_wedge) {
-            color = COLOR_SELECTED;
-        } else {
-            color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
-        }
-        lv_meter_set_indicator_value(meter, indicators[i], 0);  // Force redraw
-        
-        // Update label color
-        if (i == selected_wedge) {
-            lv_obj_set_style_text_color(wedge_labels_obj[i], COLOR_CENTER, 0);
-        } else {
-            lv_obj_set_style_text_color(wedge_labels_obj[i], COLOR_TEXT, 0);
-        }
-    }
-    
-    // Update center icon
-    lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
-    
-    Serial.printf("Selected: %s\n", wedge_labels[selected_wedge]);
-}
-
-// Touch event handler for the screen
-static void screen_touch_cb(lv_event_t* e) {
-    lv_indev_t* indev = lv_indev_get_act();
-    if (indev == NULL) return;
-    
-    lv_point_t point;
-    lv_indev_get_point(indev, &point);
-    
-    int wedge = get_touched_wedge(point.x, point.y);
-    if (wedge >= 0 && wedge != selected_wedge) {
-        selected_wedge = wedge;
-        needs_redraw = true;
-    }
-}
-
 void create_radial_ui() {
     lv_obj_t* screen = lv_scr_act();
     
     // Black background
     lv_obj_set_style_bg_color(screen, COLOR_BG, 0);
     
-    // Add touch event to screen
-    lv_obj_add_event_cb(screen, screen_touch_cb, LV_EVENT_PRESSED, NULL);
-    
     // Create meter for the pie chart
-    meter = lv_meter_create(screen);
+    lv_obj_t* meter = lv_meter_create(screen);
     lv_obj_set_size(meter, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
     lv_obj_center(meter);
     lv_obj_set_style_bg_opa(meter, LV_OPA_TRANSP, 0);
@@ -131,7 +87,7 @@ void create_radial_ui() {
     lv_obj_set_style_pad_all(meter, 0, 0);
     
     // Add scale
-    scale = lv_meter_add_scale(meter);
+    lv_meter_scale_t* scale = lv_meter_add_scale(meter);
     lv_meter_set_scale_range(meter, scale, 0, 360, 360, 270);
     lv_meter_set_scale_ticks(meter, scale, 0, 0, 0, lv_color_black());
     
@@ -147,10 +103,10 @@ void create_radial_ui() {
             color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
         }
         
-        indicators[i] = lv_meter_add_arc(meter, scale, 
+        lv_meter_indicator_t* indic = lv_meter_add_arc(meter, scale, 
             OUTER_RADIUS - INNER_RADIUS, color, 0);
-        lv_meter_set_indicator_start_value(meter, indicators[i], start);
-        lv_meter_set_indicator_end_value(meter, indicators[i], end);
+        lv_meter_set_indicator_start_value(meter, indic, start);
+        lv_meter_set_indicator_end_value(meter, indic, end);
     }
     
     // Add labels for each wedge
@@ -176,21 +132,50 @@ void create_radial_ui() {
     }
     
     // Center circle (on top)
-    lv_obj_t* center = lv_obj_create(screen);
-    lv_obj_set_size(center, CENTER_RADIUS * 2, CENTER_RADIUS * 2);
-    lv_obj_center(center);
-    lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(center, COLOR_CENTER, 0);
-    lv_obj_set_style_border_color(center, COLOR_BORDER, 0);
-    lv_obj_set_style_border_width(center, 3, 0);
-    lv_obj_clear_flag(center, LV_OBJ_FLAG_SCROLLABLE);
+    center_obj = lv_obj_create(screen);
+    lv_obj_set_size(center_obj, CENTER_RADIUS * 2, CENTER_RADIUS * 2);
+    lv_obj_center(center_obj);
+    lv_obj_set_style_radius(center_obj, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(center_obj, COLOR_CENTER, 0);
+    lv_obj_set_style_border_color(center_obj, COLOR_BORDER, 0);
+    lv_obj_set_style_border_width(center_obj, 3, 0);
+    lv_obj_clear_flag(center_obj, LV_OBJ_FLAG_SCROLLABLE);
     
     // Center icon (changes based on selection)
-    center_icon = lv_label_create(center);
+    center_icon = lv_label_create(center_obj);
     lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
     lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
     lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
     lv_obj_center(center_icon);
+}
+
+void rebuild_ui() {
+    // Clear all children from screen
+    lv_obj_clean(lv_scr_act());
+    
+    // Rebuild the UI with new selection
+    create_radial_ui();
+}
+
+void check_touch() {
+    uint16_t x, y;
+    uint8_t touched = getTouch(&x, &y);
+    
+    if (touched && !was_touched) {
+        // New touch detected
+        Serial.printf("Touch at: %d, %d\n", x, y);
+        
+        int wedge = get_touched_wedge(x, y);
+        Serial.printf("Wedge: %d\n", wedge);
+        
+        if (wedge >= 0 && wedge != selected_wedge) {
+            selected_wedge = wedge;
+            Serial.printf("Selected: %s\n", wedge_labels[selected_wedge]);
+            rebuild_ui();
+        }
+    }
+    
+    was_touched = touched;
 }
 
 void setup() {
@@ -213,11 +198,6 @@ void setup() {
 
 void loop() {
     lv_timer_handler();
-    
-    if (needs_redraw) {
-        update_selection();
-        needs_redraw = false;
-    }
-    
-    delay(5);
+    check_touch();
+    delay(10);
 }
