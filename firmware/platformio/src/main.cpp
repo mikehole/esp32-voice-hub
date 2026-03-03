@@ -21,8 +21,8 @@ void setup() {
     lcd_lvgl_Init();
     Serial.println("LCD initialized");
     
-    // Initialize backlight
-    lcd_bl_pwm_bsp_init(LCD_PWM_MODE_255);
+    // Initialize backlight (dimmed for better black levels)
+    lcd_bl_pwm_bsp_init(LCD_PWM_MODE_150);
     Serial.println("Backlight initialized");
     
     // Set black background (true black on AMOLED = pixels off)
