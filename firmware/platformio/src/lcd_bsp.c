@@ -1,4 +1,5 @@
 #include "lcd_bsp.h"
+#include "esp_idf_version.h"
 #include "esp_lcd_sh8601.h"
 #include "lcd_config.h"
 #include "cst816.h"
@@ -238,7 +239,11 @@ void lcd_lvgl_Init(void)
   const esp_lcd_panel_dev_config_t panel_config = 
   {
     .reset_gpio_num = EXAMPLE_PIN_NUM_LCD_RST,
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+#else
+    .color_space = ESP_LCD_COLOR_SPACE_RGB,
+#endif
     .bits_per_pixel = LCD_BIT_PER_PIXEL,
     .vendor_config = &vendor_config,
   };
@@ -283,7 +288,8 @@ void lcd_lvgl_Init(void)
   xTaskCreate(example_lvgl_port_task, "LVGL", EXAMPLE_LVGL_TASK_STACK_SIZE, NULL, EXAMPLE_LVGL_TASK_PRIORITY, NULL);
   if (example_lvgl_lock(-1)) 
   {   
-    lv_demo_widgets();      /* A widgets example */
+    // Demo removed - we'll create our own UI in main.cpp
+    // lv_demo_widgets();      /* A widgets example */
     //lv_demo_music();        /* A modern, smartphone-like music player demo. */
     //lv_demo_stress();       /* A stress test for LVGL. */
     //lv_demo_benchmark();    /* A demo to measure the performance of LVGL or to compare different settings. */
