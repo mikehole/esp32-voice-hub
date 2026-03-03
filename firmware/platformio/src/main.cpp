@@ -11,6 +11,11 @@
 #include "lcd_bl_pwm_bsp.h"
 #include "lcd_config.h"
 #include "images/minerva_img.h"
+#include "bidi_switch_knob.h"
+
+// Encoder pins
+#define ENCODER_PIN_A    8
+#define ENCODER_PIN_B    7
 
 // Color palette - Blue Mono design
 #define COLOR_BG           lv_color_hex(0x000000)  // True black
@@ -54,6 +59,20 @@ lv_obj_t* center_obj = NULL;
 uint16_t last_touch_x = 0;
 uint16_t last_touch_y = 0;
 bool was_touched = false;
+
+// Encoder state
+static knob_handle_t knob_handle = NULL;
+volatile bool knob_left_flag = false;
+volatile bool knob_right_flag = false;
+
+// Encoder callbacks
+static void knob_left_cb(void *arg, void *data) {
+    knob_left_flag = true;
+}
+
+static void knob_right_cb(void *arg, void *data) {
+    knob_right_flag = true;
+}
 
 // Calculate which wedge was touched based on x,y coordinates
 int get_touched_wedge(int x, int y) {
@@ -211,13 +230,43 @@ void setup() {
     lcd_bl_pwm_bsp_init(LCD_PWM_MODE_200);
     Serial.println("Backlight initialized");
     
+    // Initialize rotary encoder
+    knob_config_t knob_cfg = {
+        .gpio_encoder_a = ENCODER_PIN_A,
+        .gpio_encoder_b = ENCODER_PIN_B,
+    };
+    knob_handle = iot_knob_create(&knob_cfg);
+    if (knob_handle != NULL) {
+        iot_knob_register_cb(knob_handle, KNOB_LEFT, knob_left_cb, NULL);
+        iot_knob_register_cb(knob_handle, KNOB_RIGHT, knob_right_cb, NULL);
+        Serial.println("Encoder initialized");
+    } else {
+        Serial.println("Encoder init failed!");
+    }
+    
     create_radial_ui();
     
-    Serial.println("Setup complete! Touch a wedge to select it.");
+    Serial.println("Setup complete! Touch or rotate to select.");
+}
+
+void check_encoder() {
+    if (knob_left_flag) {
+        knob_left_flag = false;
+        selected_wedge = (selected_wedge + 7) % 8;  // Decrement with wrap
+        Serial.printf("Encoder LEFT - Selected: %s\n", wedge_labels[selected_wedge]);
+        rebuild_ui();
+    }
+    if (knob_right_flag) {
+        knob_right_flag = false;
+        selected_wedge = (selected_wedge + 1) % 8;  // Increment with wrap
+        Serial.printf("Encoder RIGHT - Selected: %s\n", wedge_labels[selected_wedge]);
+        rebuild_ui();
+    }
 }
 
 void loop() {
     lv_timer_handler();
     check_touch();
+    check_encoder();
     delay(10);
 }
