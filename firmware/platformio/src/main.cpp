@@ -1,7 +1,7 @@
 /**
  * ESP32 Voice Hub - Main Application
  * Radial Wedge UI with 8 segments (Trivial Pursuit style)
- * Using meter widget for proper pie segments
+ * Touch-enabled wedge selection
  */
 
 #include <Arduino.h>
@@ -25,17 +25,93 @@
 #define CENTER_X        (SCREEN_SIZE / 2)
 #define CENTER_Y        (SCREEN_SIZE / 2)
 #define OUTER_RADIUS    165
-#define INNER_RADIUS    85   // Increased for larger center
-#define CENTER_RADIUS   78   // 20% larger (was 65)
+#define INNER_RADIUS    85
+#define CENTER_RADIUS   78
 
-// Wedge labels
+// Wedge labels and icons
 const char* wedge_labels[] = {
     "Voice", "Music", "Home", "Weather",
     "News", "Timer", "Lights", "Settings"
 };
 
+const char* wedge_icons[] = {
+    LV_SYMBOL_AUDIO, LV_SYMBOL_AUDIO, LV_SYMBOL_HOME, LV_SYMBOL_EYE_OPEN,
+    LV_SYMBOL_LIST, LV_SYMBOL_BELL, LV_SYMBOL_CHARGE, LV_SYMBOL_SETTINGS
+};
+
+// Global state
 int selected_wedge = 0;
+lv_obj_t* meter = NULL;
 lv_obj_t* wedge_labels_obj[8];
+lv_obj_t* center_icon = NULL;
+lv_meter_scale_t* scale = NULL;
+lv_meter_indicator_t* indicators[8];
+bool needs_redraw = true;
+
+// Calculate which wedge was touched based on x,y coordinates
+int get_touched_wedge(int x, int y) {
+    int dx = x - CENTER_X;
+    int dy = y - CENTER_Y;
+    float distance = sqrt(dx * dx + dy * dy);
+    
+    // Check if touch is in the wedge ring (not center, not outside)
+    if (distance < INNER_RADIUS || distance > OUTER_RADIUS) {
+        return -1;  // Not in wedge area
+    }
+    
+    // Calculate angle (0 = right, going counter-clockwise)
+    float angle = atan2(dy, dx) * 180.0 / M_PI;
+    
+    // Convert to our coordinate system (0 = top, clockwise)
+    angle = angle + 90;  // Shift so 0 is at top
+    if (angle < 0) angle += 360;
+    
+    // Calculate wedge index (each wedge is 45 degrees)
+    int wedge = (int)(angle / 45.0) % 8;
+    
+    return wedge;
+}
+
+// Update the UI to reflect current selection
+void update_selection() {
+    // Update meter arc colors
+    for (int i = 0; i < 8; i++) {
+        lv_color_t color;
+        if (i == selected_wedge) {
+            color = COLOR_SELECTED;
+        } else {
+            color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
+        }
+        lv_meter_set_indicator_value(meter, indicators[i], 0);  // Force redraw
+        
+        // Update label color
+        if (i == selected_wedge) {
+            lv_obj_set_style_text_color(wedge_labels_obj[i], COLOR_CENTER, 0);
+        } else {
+            lv_obj_set_style_text_color(wedge_labels_obj[i], COLOR_TEXT, 0);
+        }
+    }
+    
+    // Update center icon
+    lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
+    
+    Serial.printf("Selected: %s\n", wedge_labels[selected_wedge]);
+}
+
+// Touch event handler for the screen
+static void screen_touch_cb(lv_event_t* e) {
+    lv_indev_t* indev = lv_indev_get_act();
+    if (indev == NULL) return;
+    
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    
+    int wedge = get_touched_wedge(point.x, point.y);
+    if (wedge >= 0 && wedge != selected_wedge) {
+        selected_wedge = wedge;
+        needs_redraw = true;
+    }
+}
 
 void create_radial_ui() {
     lv_obj_t* screen = lv_scr_act();
@@ -43,25 +119,26 @@ void create_radial_ui() {
     // Black background
     lv_obj_set_style_bg_color(screen, COLOR_BG, 0);
     
+    // Add touch event to screen
+    lv_obj_add_event_cb(screen, screen_touch_cb, LV_EVENT_PRESSED, NULL);
+    
     // Create meter for the pie chart
-    lv_obj_t* meter = lv_meter_create(screen);
+    meter = lv_meter_create(screen);
     lv_obj_set_size(meter, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
     lv_obj_center(meter);
     lv_obj_set_style_bg_opa(meter, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(meter, 0, 0);
-    
-    // Remove the default tick marks
     lv_obj_set_style_pad_all(meter, 0, 0);
     
     // Add scale
-    lv_meter_scale_t* scale = lv_meter_add_scale(meter);
+    scale = lv_meter_add_scale(meter);
     lv_meter_set_scale_range(meter, scale, 0, 360, 360, 270);
     lv_meter_set_scale_ticks(meter, scale, 0, 0, 0, lv_color_black());
     
     // Draw 8 arc segments
     for (int i = 0; i < 8; i++) {
         int start = i * 45;
-        int end = start + 43;  // Leave small gap
+        int end = start + 43;
         
         lv_color_t color;
         if (i == selected_wedge) {
@@ -70,15 +147,15 @@ void create_radial_ui() {
             color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
         }
         
-        lv_meter_indicator_t* indic = lv_meter_add_arc(meter, scale, 
+        indicators[i] = lv_meter_add_arc(meter, scale, 
             OUTER_RADIUS - INNER_RADIUS, color, 0);
-        lv_meter_set_indicator_start_value(meter, indic, start);
-        lv_meter_set_indicator_end_value(meter, indic, end);
+        lv_meter_set_indicator_start_value(meter, indicators[i], start);
+        lv_meter_set_indicator_end_value(meter, indicators[i], end);
     }
     
     // Add labels for each wedge
     for (int i = 0; i < 8; i++) {
-        float angle_deg = i * 45 + 22.5 - 90;  // Center of wedge, offset from top
+        float angle_deg = i * 45 + 22.5 - 90;
         float angle_rad = angle_deg * M_PI / 180.0;
         float label_radius = (OUTER_RADIUS + INNER_RADIUS) / 2;
         
@@ -108,9 +185,9 @@ void create_radial_ui() {
     lv_obj_set_style_border_width(center, 3, 0);
     lv_obj_clear_flag(center, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Center icon
-    lv_obj_t* center_icon = lv_label_create(center);
-    lv_label_set_text(center_icon, LV_SYMBOL_AUDIO);
+    // Center icon (changes based on selection)
+    center_icon = lv_label_create(center);
+    lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
     lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
     lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
     lv_obj_center(center_icon);
@@ -120,25 +197,27 @@ void setup() {
     Serial.begin(115200);
     Serial.println("ESP32 Voice Hub - Starting...");
     
-    // Initialize touch controller
     Touch_Init();
     Serial.println("Touch initialized");
     
-    // Initialize LCD with LVGL
     lcd_lvgl_Init();
     Serial.println("LCD initialized");
     
-    // Initialize backlight
     lcd_bl_pwm_bsp_init(LCD_PWM_MODE_200);
     Serial.println("Backlight initialized");
     
-    // Create the radial wedge UI
     create_radial_ui();
     
-    Serial.println("Setup complete!");
+    Serial.println("Setup complete! Touch a wedge to select it.");
 }
 
 void loop() {
     lv_timer_handler();
+    
+    if (needs_redraw) {
+        update_selection();
+        needs_redraw = false;
+    }
+    
     delay(5);
 }
