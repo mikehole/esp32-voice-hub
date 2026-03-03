@@ -199,11 +199,9 @@ static const sh8601_lcd_init_cmd_t lcd_init_cmds[] =
   {0x21, (uint8_t[]){0x00}, 1, 0},
   {0x11, (uint8_t[]){0x00}, 1, 120},
   {0x29, (uint8_t[]){0x00}, 1, 0},
-#ifdef EXAMPLE_Rotate_90
-  {0x36, (uint8_t[]){0x60}, 1, 0},
-#else
-  {0x36, (uint8_t[]){0x00}, 1, 0},
-#endif
+// MADCTL: 0x00=normal, 0x40=mirror Y, 0x80=mirror X, 0xC0=mirror both
+// Display appears upside-down and mirrored, so use 0xC0
+  {0x36, (uint8_t[]){0xC0}, 1, 0},
 };
 
 void lcd_lvgl_Init(void)
