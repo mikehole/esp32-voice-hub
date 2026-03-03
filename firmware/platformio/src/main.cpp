@@ -31,12 +31,12 @@
 
 // Wedge labels and icons
 const char* wedge_labels[] = {
-    "Voice", "Music", "Home", "Weather",
+    "Minerva", "Music", "Home", "Weather",
     "News", "Timer", "Lights", "Settings"
 };
 
 const char* wedge_icons[] = {
-    LV_SYMBOL_CALL,      // Voice (mic/phone icon)
+    NULL,                // Minerva - uses avatar instead
     LV_SYMBOL_AUDIO,     // Music
     LV_SYMBOL_HOME,      // Home  
     LV_SYMBOL_EYE_OPEN,  // Weather (eye = looking outside)
@@ -153,22 +153,20 @@ void create_radial_ui() {
     lv_obj_set_style_clip_corner(center_obj, true, 0);
     lv_obj_clear_flag(center_obj, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Minerva avatar image
-    lv_obj_t* avatar = lv_img_create(center_obj);
-    lv_img_set_src(avatar, &minerva_avatar);
-    lv_obj_center(avatar);
-    
-    // Title label below center
-    lv_obj_t* title = lv_label_create(screen);
-    lv_label_set_text(title, "Minerva");
-    lv_obj_set_style_text_color(title, COLOR_SELECTED, 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, CENTER_RADIUS + 15);
-    
-    // Keep icon reference for later (hidden for now)
-    center_icon = lv_label_create(center_obj);
-    lv_label_set_text(center_icon, "");
-    lv_obj_add_flag(center_icon, LV_OBJ_FLAG_HIDDEN);
+    // Show avatar for Minerva, icon for others
+    if (selected_wedge == 0) {
+        // Minerva avatar image
+        lv_obj_t* avatar = lv_img_create(center_obj);
+        lv_img_set_src(avatar, &minerva_avatar);
+        lv_obj_center(avatar);
+    } else {
+        // Icon for other selections
+        center_icon = lv_label_create(center_obj);
+        lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
+        lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
+        lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
+        lv_obj_center(center_icon);
+    }
 }
 
 void rebuild_ui() {
