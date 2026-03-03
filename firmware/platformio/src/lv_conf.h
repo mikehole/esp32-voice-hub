@@ -11,6 +11,9 @@
 /* Color depth: 16 (RGB565) */
 #define LV_COLOR_DEPTH 16
 
+/* Swap bytes for SPI displays (big-endian) */
+#define LV_COLOR_16_SWAP 1
+
 /* Enable full LVGL features we need */
 #define LV_USE_LOG 0
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
