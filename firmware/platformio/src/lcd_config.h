@@ -15,8 +15,8 @@
 #define EXAMPLE_PIN_NUM_LCD_RST     21
 #define EXAMPLE_PIN_NUM_BK_LIGHT    47
 
-// Full-height buffer to prevent tearing (uses more RAM but eliminates banding)
-#define EXAMPLE_LVGL_BUF_HEIGHT        EXAMPLE_LCD_V_RES
+// Buffer height - 1/10th of screen to fit in DMA memory
+#define EXAMPLE_LVGL_BUF_HEIGHT        (EXAMPLE_LCD_V_RES / 10)
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2                          //Timer time
 #define EXAMPLE_LVGL_TASK_MAX_DELAY_MS 500                        //LVGL Indicates the maximum time for a task to run
 #define EXAMPLE_LVGL_TASK_MIN_DELAY_MS 1                          //LVGL Minimum time to run a task
