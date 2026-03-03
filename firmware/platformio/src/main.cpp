@@ -50,6 +50,10 @@ bool was_touched = false;
 
 // Calculate which wedge was touched based on x,y coordinates
 int get_touched_wedge(int x, int y) {
+    // Invert touch coordinates to match display orientation
+    x = SCREEN_SIZE - x;
+    y = SCREEN_SIZE - y;
+    
     int dx = x - CENTER_X;
     int dy = y - CENTER_Y;
     float distance = sqrt(dx * dx + dy * dy);
