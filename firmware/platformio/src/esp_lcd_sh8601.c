@@ -70,8 +70,6 @@ esp_err_t esp_lcd_new_panel_sh8601(const esp_lcd_panel_io_handle_t io, const esp
         ESP_GOTO_ON_ERROR(gpio_config(&io_conf), err, TAG, "configure GPIO for RST line failed");
     }
 
-    // Handle RGB element order - use color_space for older ESP-IDF, rgb_ele_order for newer
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     switch (panel_dev_config->rgb_ele_order) {
     case LCD_RGB_ELEMENT_ORDER_RGB:
         sh8601->madctl_val = 0;
@@ -83,14 +81,6 @@ esp_err_t esp_lcd_new_panel_sh8601(const esp_lcd_panel_io_handle_t io, const esp
         ESP_GOTO_ON_FALSE(false, ESP_ERR_NOT_SUPPORTED, err, TAG, "unsupported color element order");
         break;
     }
-#else
-    // ESP-IDF 4.x uses color_space instead of rgb_ele_order
-    if (panel_dev_config->color_space == ESP_LCD_COLOR_SPACE_BGR) {
-        sh8601->madctl_val |= LCD_CMD_BGR_BIT;
-    } else {
-        sh8601->madctl_val = 0;
-    }
-#endif
 
     uint8_t fb_bits_per_pixel = 0;
     switch (panel_dev_config->bits_per_pixel) {
@@ -130,11 +120,7 @@ esp_err_t esp_lcd_new_panel_sh8601(const esp_lcd_panel_io_handle_t io, const esp
     sh8601->base.set_gap = panel_sh8601_set_gap;
     sh8601->base.mirror = panel_sh8601_mirror;
     sh8601->base.swap_xy = panel_sh8601_swap_xy;
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     sh8601->base.disp_on_off = panel_sh8601_disp_on_off;
-#else
-    sh8601->base.disp_off = panel_sh8601_disp_on_off;
-#endif
     *ret_panel = &(sh8601->base);
     ESP_LOGD(TAG, "new sh8601 panel @%p", sh8601);
 
