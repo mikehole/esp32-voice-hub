@@ -1,8 +1,6 @@
 /**
- * ESP32 Voice Hub - Main Entry Point
- * Waveshare ESP32-S3-Knob-Touch-LCD-1.8
- * 
- * Using Waveshare's native drivers for SH8601 QSPI display
+ * ESP32 Voice Hub - Main Application
+ * Using Waveshare native drivers for SH8601 AMOLED
  */
 
 #include <Arduino.h>
@@ -17,18 +15,27 @@ void setup() {
     
     // Initialize touch controller
     Touch_Init();
+    Serial.println("Touch initialized");
     
     // Initialize LCD with LVGL
     lcd_lvgl_Init();
+    Serial.println("LCD initialized");
     
-    // Initialize backlight (full brightness)
+    // Initialize backlight
     lcd_bl_pwm_bsp_init(LCD_PWM_MODE_255);
+    Serial.println("Backlight initialized");
     
-    Serial.println("Display initialized!");
+    // Create a simple test label
+    lv_obj_t *label = lv_label_create(lv_scr_act());
+    lv_label_set_text(label, "ESP32 Voice Hub\nDisplay OK!");
+    lv_obj_set_style_text_color(label, lv_color_hex(0x5DADE2), 0);  // Cyan
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+    lv_obj_center(label);
+    
+    Serial.println("Setup complete!");
 }
 
 void loop() {
-    // LVGL task handler runs in its own FreeRTOS task (created by lcd_lvgl_Init)
-    // Main loop can be used for other tasks
-    delay(100);
+    lv_timer_handler();
+    delay(5);
 }

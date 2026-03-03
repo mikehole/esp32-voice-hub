@@ -1,63 +1,115 @@
-/**
- * SH8601 AMOLED Driver - Direct SPI implementation for ESP-IDF 4.4
- * Bypasses esp_lcd panel framework to support QSPI manually
- */
+/*
+ * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+  */
 
-#ifndef ESP_LCD_SH8601_H
-#define ESP_LCD_SH8601_H
+#pragma once
 
 #include <stdint.h>
-#include "driver/spi_master.h"
-#include "esp_err.h"
+
+#include "esp_lcd_panel_vendor.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief LCD initialization command structure
+ * @brief LCD panel initialization commands.
+ *
  */
 typedef struct {
-    uint8_t cmd;
-    uint8_t data[16];
-    uint8_t data_bytes;
-    uint16_t delay_ms;
+    int cmd;                /*<! The specific LCD command */
+    const void *data;       /*<! Buffer that holds the command specific data */
+    size_t data_bytes;      /*<! Size of `data` in memory, in bytes */
+    unsigned int delay_ms;  /*<! Delay in milliseconds after this command */
 } sh8601_lcd_init_cmd_t;
 
 /**
- * @brief SH8601 handle
+ * @brief LCD panel vendor configuration.
+ *
+ * @note  This structure can be used to select interface type and override default initialization commands.
+ * @note  This structure needs to be passed to the `vendor_config` field in `esp_lcd_panel_dev_config_t`.
+ *
  */
 typedef struct {
-    spi_device_handle_t spi;
-    int rst_gpio;
-    int cs_gpio;
-} sh8601_handle_t;
+    const sh8601_lcd_init_cmd_t *init_cmds;    /*!< Pointer to initialization commands array.
+                                                 *  The array should be declared as `static const` and positioned outside the function.
+                                                 *  Please refer to `vendor_specific_init_default` in source file
+                                                 */
+    uint16_t init_cmds_size;    /*<! Number of commands in above array */
+    struct {
+        unsigned int use_qspi_interface: 1;     /*<! Set to 1 if use QSPI interface, default is SPI interface */
+    } flags;
+} sh8601_vendor_config_t;
 
 /**
- * @brief Initialize SH8601 display
+ * @brief Create LCD panel for model SH8601
+ *
+ * @param[in]  io LCD panel IO handle
+ * @param[in]  panel_dev_config General panel device configuration (Use `vendor_config` to select QSPI interface or override default initialization commands)
+ * @param[out] ret_panel Returned LCD panel handle
+ * @return
+ *      - ESP_OK: Success
+ *      - Otherwise: Fail
  */
-esp_err_t sh8601_init(sh8601_handle_t *handle, spi_host_device_t host, int cs, int rst,
-                       int clk, int d0, int d1, int d2, int d3,
-                       const sh8601_lcd_init_cmd_t *init_cmds, size_t init_cmds_size);
+esp_err_t esp_lcd_new_panel_sh8601(const esp_lcd_panel_io_handle_t io, const esp_lcd_panel_dev_config_t *panel_dev_config, esp_lcd_panel_handle_t *ret_panel);
 
 /**
- * @brief Draw bitmap to display
+ * @brief LCD panel bus configuration structure
+ *
  */
-esp_err_t sh8601_draw_bitmap(sh8601_handle_t *handle, int x_start, int y_start, 
-                              int x_end, int y_end, const void *color_data);
+#define SH8601_PANEL_BUS_SPI_CONFIG(sclk, mosi, max_trans_sz)   \
+    {                                                           \
+        .sclk_io_num = sclk,                                    \
+        .mosi_io_num = mosi,                                    \
+        .miso_io_num = -1,                                      \
+        .quadhd_io_num = -1,                                    \
+        .quadwp_io_num = -1,                                    \
+        .max_transfer_sz = max_trans_sz,                        \
+    }
+#define SH8601_PANEL_BUS_QSPI_CONFIG(sclk, d0, d1, d2, d3, max_trans_sz) \
+    {                                                           \
+        .data0_io_num = d0,                                     \
+        .data1_io_num = d1,                                     \
+        .sclk_io_num = sclk,                                    \
+        .data2_io_num = d2,                                     \
+        .data3_io_num = d3,                                     \
+        .max_transfer_sz = max_trans_sz,                        \
+    }
 
 /**
- * @brief Flush callback for LVGL
+ * @brief LCD panel IO configuration structure
+ *
  */
-typedef void (*sh8601_flush_done_cb_t)(void *user_data);
-
-/**
- * @brief Set flush done callback
- */
-void sh8601_set_flush_cb(sh8601_handle_t *handle, sh8601_flush_done_cb_t cb, void *user_data);
+#define SH8601_PANEL_IO_SPI_CONFIG(cs, dc, cb, cb_ctx)          \
+    {                                                           \
+        .cs_gpio_num = cs,                                      \
+        .dc_gpio_num = dc,                                      \
+        .spi_mode = 0,                                          \
+        .pclk_hz = 40 * 1000 * 1000,                            \
+        .trans_queue_depth = 10,                                \
+        .on_color_trans_done = cb,                              \
+        .user_ctx = cb_ctx,                                     \
+        .lcd_cmd_bits = 8,                                      \
+        .lcd_param_bits = 8,                                    \
+    }
+#define SH8601_PANEL_IO_QSPI_CONFIG(cs, cb, cb_ctx)             \
+    {                                                           \
+        .cs_gpio_num = cs,                                      \
+        .dc_gpio_num = -1,                                      \
+        .spi_mode = 0,                                          \
+        .pclk_hz = 40 * 1000 * 1000,                            \
+        .trans_queue_depth = 10,                                \
+        .on_color_trans_done = cb,                              \
+        .user_ctx = cb_ctx,                                     \
+        .lcd_cmd_bits = 32,                                     \
+        .lcd_param_bits = 8,                                    \
+        .flags = {                                              \
+            .quad_mode = true,                                  \
+        },                                                      \
+    }
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif // ESP_LCD_SH8601_H
