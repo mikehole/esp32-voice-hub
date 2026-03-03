@@ -1,6 +1,7 @@
 /**
  * ESP32 Voice Hub - Main Application
  * Radial Wedge UI with 8 segments (Trivial Pursuit style)
+ * Using meter widget for proper pie segments
  */
 
 #include <Arduino.h>
@@ -23,9 +24,9 @@
 #define SCREEN_SIZE     360
 #define CENTER_X        (SCREEN_SIZE / 2)
 #define CENTER_Y        (SCREEN_SIZE / 2)
-#define OUTER_RADIUS    170
-#define INNER_RADIUS    70
-#define CENTER_RADIUS   60
+#define OUTER_RADIUS    165
+#define INNER_RADIUS    75
+#define CENTER_RADIUS   65
 
 // Wedge labels
 const char* wedge_labels[] = {
@@ -33,45 +34,8 @@ const char* wedge_labels[] = {
     "News", "Timer", "Lights", "Settings"
 };
 
-// Draw a single wedge segment using arcs
-void draw_wedge(lv_obj_t* parent, int index, bool selected) {
-    int start_angle = index * 45 - 90;  // Start from top, 45° each
-    int end_angle = start_angle + 44;   // Small gap between wedges
-    
-    // Create arc for wedge
-    lv_obj_t* arc = lv_arc_create(parent);
-    lv_obj_set_size(arc, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
-    lv_obj_center(arc);
-    lv_arc_set_rotation(arc, start_angle);
-    lv_arc_set_bg_angles(arc, 0, 44);
-    lv_arc_set_value(arc, 0);
-    
-    // Style the arc
-    lv_obj_set_style_arc_width(arc, OUTER_RADIUS - INNER_RADIUS, LV_PART_MAIN);
-    lv_color_t wedge_color = selected ? COLOR_SELECTED : 
-                             (index % 2 == 0 ? COLOR_WEDGE : COLOR_WEDGE_ALT);
-    lv_obj_set_style_arc_color(arc, wedge_color, LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_MAIN);
-    
-    // Hide the indicator and knob
-    lv_obj_set_style_arc_opa(arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
-    
-    // Remove arc interactivity
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-    
-    // Add label at wedge center
-    float label_angle = (start_angle + 22) * M_PI / 180.0;
-    float label_radius = (OUTER_RADIUS + INNER_RADIUS) / 2;
-    int label_x = CENTER_X + (int)(cos(label_angle) * label_radius);
-    int label_y = CENTER_Y + (int)(sin(label_angle) * label_radius);
-    
-    lv_obj_t* label = lv_label_create(parent);
-    lv_label_set_text(label, wedge_labels[index]);
-    lv_obj_set_style_text_color(label, selected ? COLOR_BG : COLOR_TEXT, 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-    lv_obj_set_pos(label, label_x - 25, label_y - 8);
-}
+int selected_wedge = 0;
+lv_obj_t* wedge_labels_obj[8];
 
 void create_radial_ui() {
     lv_obj_t* screen = lv_scr_act();
@@ -79,27 +43,77 @@ void create_radial_ui() {
     // Black background
     lv_obj_set_style_bg_color(screen, COLOR_BG, 0);
     
-    // Draw 8 wedges (one selected for demo)
+    // Create meter for the pie chart
+    lv_obj_t* meter = lv_meter_create(screen);
+    lv_obj_set_size(meter, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
+    lv_obj_center(meter);
+    lv_obj_set_style_bg_opa(meter, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(meter, 0, 0);
+    
+    // Remove the default tick marks
+    lv_obj_set_style_pad_all(meter, 0, 0);
+    
+    // Add scale
+    lv_meter_scale_t* scale = lv_meter_add_scale(meter);
+    lv_meter_set_scale_range(meter, scale, 0, 360, 360, 270);
+    lv_meter_set_scale_ticks(meter, scale, 0, 0, 0, lv_color_black());
+    
+    // Draw 8 arc segments
     for (int i = 0; i < 8; i++) {
-        draw_wedge(screen, i, i == 0);  // First wedge selected
+        int start = i * 45;
+        int end = start + 43;  // Leave small gap
+        
+        lv_color_t color;
+        if (i == selected_wedge) {
+            color = COLOR_SELECTED;
+        } else {
+            color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
+        }
+        
+        lv_meter_indicator_t* indic = lv_meter_add_arc(meter, scale, 
+            OUTER_RADIUS - INNER_RADIUS, color, 0);
+        lv_meter_set_indicator_start_value(meter, indic, start);
+        lv_meter_set_indicator_end_value(meter, indic, end);
     }
     
-    // Center circle
+    // Add labels for each wedge
+    for (int i = 0; i < 8; i++) {
+        float angle_deg = i * 45 + 22.5 - 90;  // Center of wedge, offset from top
+        float angle_rad = angle_deg * M_PI / 180.0;
+        float label_radius = (OUTER_RADIUS + INNER_RADIUS) / 2;
+        
+        int label_x = CENTER_X + (int)(cos(angle_rad) * label_radius) - 22;
+        int label_y = CENTER_Y + (int)(sin(angle_rad) * label_radius) - 8;
+        
+        lv_obj_t* label = lv_label_create(screen);
+        lv_label_set_text(label, wedge_labels[i]);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+        
+        if (i == selected_wedge) {
+            lv_obj_set_style_text_color(label, COLOR_CENTER, 0);
+        } else {
+            lv_obj_set_style_text_color(label, COLOR_TEXT, 0);
+        }
+        lv_obj_set_pos(label, label_x, label_y);
+        wedge_labels_obj[i] = label;
+    }
+    
+    // Center circle (on top)
     lv_obj_t* center = lv_obj_create(screen);
     lv_obj_set_size(center, CENTER_RADIUS * 2, CENTER_RADIUS * 2);
     lv_obj_center(center);
     lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(center, COLOR_CENTER, 0);
     lv_obj_set_style_border_color(center, COLOR_BORDER, 0);
-    lv_obj_set_style_border_width(center, 2, 0);
+    lv_obj_set_style_border_width(center, 3, 0);
     lv_obj_clear_flag(center, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Center icon/text
-    lv_obj_t* center_label = lv_label_create(center);
-    lv_label_set_text(center_label, LV_SYMBOL_AUDIO);
-    lv_obj_set_style_text_color(center_label, COLOR_SELECTED, 0);
-    lv_obj_set_style_text_font(center_label, &lv_font_montserrat_32, 0);
-    lv_obj_center(center_label);
+    // Center icon
+    lv_obj_t* center_icon = lv_label_create(center);
+    lv_label_set_text(center_icon, LV_SYMBOL_AUDIO);
+    lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
+    lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
+    lv_obj_center(center_icon);
 }
 
 void setup() {
