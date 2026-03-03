@@ -35,8 +35,14 @@ const char* wedge_labels[] = {
 };
 
 const char* wedge_icons[] = {
-    LV_SYMBOL_AUDIO, LV_SYMBOL_AUDIO, LV_SYMBOL_HOME, LV_SYMBOL_EYE_OPEN,
-    LV_SYMBOL_LIST, LV_SYMBOL_BELL, LV_SYMBOL_CHARGE, LV_SYMBOL_SETTINGS
+    LV_SYMBOL_CALL,      // Voice (mic/phone icon)
+    LV_SYMBOL_AUDIO,     // Music
+    LV_SYMBOL_HOME,      // Home  
+    LV_SYMBOL_EYE_OPEN,  // Weather (eye = looking outside)
+    LV_SYMBOL_LIST,      // News
+    LV_SYMBOL_BELL,      // Timer
+    LV_SYMBOL_CHARGE,    // Lights (power/energy)
+    LV_SYMBOL_SETTINGS   // Settings
 };
 
 // Global state
