@@ -25,8 +25,8 @@
 #define CENTER_X        (SCREEN_SIZE / 2)
 #define CENTER_Y        (SCREEN_SIZE / 2)
 #define OUTER_RADIUS    165
-#define INNER_RADIUS    75
-#define CENTER_RADIUS   65
+#define INNER_RADIUS    85   // Increased for larger center
+#define CENTER_RADIUS   78   // 20% larger (was 65)
 
 // Wedge labels
 const char* wedge_labels[] = {
