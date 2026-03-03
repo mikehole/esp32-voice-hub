@@ -25,6 +25,9 @@ void setup() {
     lcd_bl_pwm_bsp_init(LCD_PWM_MODE_255);
     Serial.println("Backlight initialized");
     
+    // Set black background (true black on AMOLED = pixels off)
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+    
     // Create a simple test label
     lv_obj_t *label = lv_label_create(lv_scr_act());
     lv_label_set_text(label, "ESP32 Voice Hub\nDisplay OK!");
