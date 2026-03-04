@@ -3,8 +3,7 @@
 A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring expressive avatar states, radial wedge menu UI, and integration with OpenClaw AI.
 
 <p align="center">
-  <img src="assets/hardware-photo.jpg" alt="Waveshare ESP32-S3 Knob" height="280"/>
-  <img src="assets/mockups/ui-screenshot-minerva.png" alt="ESP32 Voice Hub UI" height="280"/>
+  <img src="assets/product-hero.png" alt="ESP32 Voice Hub" width="500"/>
 </p>
 
 ## ✨ Features
