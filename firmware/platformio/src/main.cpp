@@ -594,5 +594,15 @@ void loop() {
     
     wifi_manager_loop();
     status_ring_update();  // Update animated status ring
+    
+    // Debug: confirm main loop is running during background processing
+    if (voice_processing) {
+        static unsigned long last_loop_debug = 0;
+        if (millis() - last_loop_debug > 500) {
+            Serial.printf("Main loop running (stage=%d)\n", voice_stage);
+            last_loop_debug = millis();
+        }
+    }
+    
     delay(10);
 }
