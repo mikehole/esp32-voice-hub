@@ -1,18 +1,27 @@
 /**
  * WiFi Manager with Captive Portal
+ * Using ESP-IDF WiFi directly for pioarduino compatibility
  */
 
 #include "wifi_manager.h"
 #include <Arduino.h>
-#include <WiFi.h>
-#include <DNSServer.h>
 #include <Preferences.h>
-#include <ESPAsyncWebServer.h>
+
+// ESP-IDF includes
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "lwip/inet.h"
+#include "lwip/dns.h"
+
+// Simple HTTP server instead of AsyncWebServer
+#include "esp_http_server.h"
 
 // AP Configuration
 #define AP_SSID "Minerva-Setup"
-#define AP_PASS ""  // Open network for easy setup
-#define DNS_PORT 53
+#define AP_PASS ""
+#define AP_CHANNEL 1
+#define AP_MAX_CONN 4
 
 // Preferences namespace
 #define PREF_NAMESPACE "wifi"
@@ -25,14 +34,16 @@
 // Global state
 static WiFiState current_state = WIFI_STATE_IDLE;
 static String status_message = "Initializing...";
-static AsyncWebServer server(80);
-static DNSServer dnsServer;
 static Preferences preferences;
-static bool server_started = false;
+static httpd_handle_t server_handle = NULL;
+static esp_netif_t* ap_netif = NULL;
+static esp_netif_t* sta_netif = NULL;
 static unsigned long connect_start_time = 0;
+static char current_ip[16] = "0.0.0.0";
+static bool wifi_connected = false;
 
-// HTML for captive portal
-static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
+// HTML for captive portal (embedded)
+static const char CAPTIVE_PORTAL_HTML[] = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -56,22 +67,10 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
             padding: 30px;
             border: 2px solid #2E86AB;
         }
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 24px;
-        }
-        .logo {
-            text-align: center;
-            font-size: 48px;
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-        input, select {
+        h1 { text-align: center; margin-bottom: 30px; font-size: 24px; }
+        .logo { text-align: center; font-size: 48px; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 500; }
+        input {
             width: 100%;
             padding: 12px;
             margin-bottom: 20px;
@@ -82,10 +81,7 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
             font-size: 16px;
             box-sizing: border-box;
         }
-        input:focus, select:focus {
-            outline: none;
-            border-color: #5DADE2;
-        }
+        input:focus { outline: none; border-color: #5DADE2; }
         button {
             width: 100%;
             padding: 15px;
@@ -96,184 +92,257 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
             font-size: 18px;
             font-weight: bold;
             cursor: pointer;
-            transition: background 0.3s;
         }
-        button:hover {
-            background: #85C1E9;
-        }
-        .networks {
-            margin-bottom: 20px;
-        }
-        .network-item {
-            padding: 12px;
-            background: #0A1929;
-            border: 1px solid #2E86AB;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .network-item:hover {
-            border-color: #5DADE2;
-        }
-        .signal {
-            font-size: 12px;
-            opacity: 0.7;
-        }
-        .status {
-            text-align: center;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-        }
+        button:hover { background: #85C1E9; }
+        .status { text-align: center; padding: 15px; border-radius: 10px; margin-top: 20px; }
         .success { background: #1a4d1a; }
         .error { background: #4d1a1a; }
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid #5DADE2;
-            border-radius: 50%;
-            border-top-color: transparent;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        #networks { margin-bottom: 20px; }
+        .net { padding: 10px; background: #0A1929; border: 1px solid #2E86AB; 
+               border-radius: 8px; margin: 5px 0; cursor: pointer; }
+        .net:hover { border-color: #5DADE2; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="logo">🦉</div>
         <h1>Minerva WiFi Setup</h1>
-        
-        <div id="scan-section">
-            <label>Available Networks:</label>
-            <div id="networks" class="networks">
-                <div style="text-align:center;padding:20px;">
-                    <div class="spinner"></div>
-                    <p>Scanning...</p>
-                </div>
-            </div>
-        </div>
-        
-        <form id="wifi-form" action="/connect" method="POST">
-            <label for="ssid">Network Name (SSID):</label>
-            <input type="text" id="ssid" name="ssid" required placeholder="Enter or select above">
-            
-            <label for="pass">Password:</label>
+        <div id="networks">Loading networks...</div>
+        <form id="f" onsubmit="return connect()">
+            <label>Network:</label>
+            <input type="text" id="ssid" name="ssid" required placeholder="Select or type network name">
+            <label>Password:</label>
             <input type="password" id="pass" name="pass" placeholder="Enter password">
-            
             <button type="submit">Connect</button>
         </form>
-        
         <div id="status"></div>
     </div>
-    
     <script>
-        // Scan for networks on load
-        fetch('/scan')
-            .then(r => r.json())
-            .then(networks => {
-                const container = document.getElementById('networks');
-                if (networks.length === 0) {
-                    container.innerHTML = '<p>No networks found. <a href="javascript:location.reload()">Retry</a></p>';
-                    return;
+        fetch('/scan').then(r=>r.text()).then(t=>{
+            let d=document.getElementById('networks');
+            if(!t||t=='[]'){d.innerHTML='<p>No networks. <a href="/">Retry</a></p>';return;}
+            try{
+                let n=JSON.parse(t);
+                d.innerHTML=n.map(x=>'<div class="net" onclick="document.getElementById(\'ssid\').value=\''+x.s+'\'">'+x.s+' ('+x.r+'dBm)</div>').join('');
+            }catch(e){d.innerHTML='<p>Scan error</p>';}
+        }).catch(()=>{document.getElementById('networks').innerHTML='<p>Scan failed</p>';});
+        function connect(){
+            let s=document.getElementById('status');
+            s.innerHTML='<div class="status">Connecting...</div>';
+            fetch('/connect?ssid='+encodeURIComponent(document.getElementById('ssid').value)+'&pass='+encodeURIComponent(document.getElementById('pass').value))
+            .then(r=>r.text()).then(t=>{
+                if(t.startsWith('OK')){
+                    s.innerHTML='<div class="status success">Connected! '+t+'</div>';
+                }else{
+                    s.innerHTML='<div class="status error">'+t+'</div>';
                 }
-                container.innerHTML = networks.map(n => 
-                    `<div class="network-item" onclick="selectNetwork('${n.ssid}')">
-                        <span>${n.ssid}</span>
-                        <span class="signal">${n.rssi} dBm ${n.secure ? '🔒' : ''}</span>
-                    </div>`
-                ).join('');
-            })
-            .catch(() => {
-                document.getElementById('networks').innerHTML = '<p>Scan failed. <a href="javascript:location.reload()">Retry</a></p>';
-            });
-        
-        function selectNetwork(ssid) {
-            document.getElementById('ssid').value = ssid;
-            document.getElementById('pass').focus();
+            }).catch(()=>{s.innerHTML='<div class="status error">Failed</div>';});
+            return false;
         }
-        
-        document.getElementById('wifi-form').onsubmit = function(e) {
-            e.preventDefault();
-            const status = document.getElementById('status');
-            status.innerHTML = '<div class="status"><div class="spinner"></div> Connecting...</div>';
-            
-            fetch('/connect', {
-                method: 'POST',
-                body: new FormData(this)
-            })
-            .then(r => r.json())
-            .then(result => {
-                if (result.success) {
-                    status.innerHTML = '<div class="status success">✓ Connected! IP: ' + result.ip + '<br>Device will restart...</div>';
-                    setTimeout(() => location.reload(), 5000);
-                } else {
-                    status.innerHTML = '<div class="status error">✗ ' + result.message + '</div>';
-                }
-            })
-            .catch(() => {
-                status.innerHTML = '<div class="status error">✗ Connection failed</div>';
-            });
-        };
     </script>
 </body>
 </html>
 )rawliteral";
 
-// Forward declarations
-static void start_captive_portal();
-static void setup_routes();
+// Event handler
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                               int32_t event_id, void* event_data) {
+    if (event_base == WIFI_EVENT) {
+        switch (event_id) {
+            case WIFI_EVENT_STA_START:
+                Serial.println("WiFi: STA started");
+                break;
+            case WIFI_EVENT_STA_DISCONNECTED:
+                Serial.println("WiFi: Disconnected");
+                wifi_connected = false;
+                if (current_state == WIFI_STATE_CONNECTING) {
+                    // Will be handled by timeout
+                }
+                break;
+            case WIFI_EVENT_AP_STACONNECTED:
+                Serial.println("WiFi: Client connected to AP");
+                break;
+        }
+    } else if (event_base == IP_EVENT) {
+        if (event_id == IP_EVENT_STA_GOT_IP) {
+            ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+            snprintf(current_ip, sizeof(current_ip), IPSTR, IP2STR(&event->ip_info.ip));
+            Serial.printf("WiFi: Got IP: %s\n", current_ip);
+            wifi_connected = true;
+            current_state = WIFI_STATE_CONNECTED;
+            status_message = String("Connected: ") + current_ip;
+        }
+    }
+}
+
+// HTTP handlers
+static esp_err_t root_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, CAPTIVE_PORTAL_HTML, strlen(CAPTIVE_PORTAL_HTML));
+    return ESP_OK;
+}
+
+static esp_err_t scan_handler(httpd_req_t *req) {
+    wifi_scan_config_t scan_config = { 0 };
+    esp_wifi_scan_start(&scan_config, true);
+    
+    uint16_t ap_count = 0;
+    esp_wifi_scan_get_ap_num(&ap_count);
+    
+    wifi_ap_record_t* ap_records = (wifi_ap_record_t*)malloc(ap_count * sizeof(wifi_ap_record_t));
+    esp_wifi_scan_get_ap_records(&ap_count, ap_records);
+    
+    String json = "[";
+    for (int i = 0; i < ap_count && i < 20; i++) {
+        if (i > 0) json += ",";
+        json += "{\"s\":\"" + String((char*)ap_records[i].ssid) + "\",\"r\":" + String(ap_records[i].rssi) + "}";
+    }
+    json += "]";
+    free(ap_records);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json.c_str(), json.length());
+    return ESP_OK;
+}
+
+static esp_err_t connect_handler(httpd_req_t *req) {
+    char query[256] = {0};
+    char ssid[64] = {0};
+    char pass[64] = {0};
+    
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        httpd_query_key_value(query, "ssid", ssid, sizeof(ssid));
+        httpd_query_key_value(query, "pass", pass, sizeof(pass));
+    }
+    
+    // URL decode
+    String ssid_str = ssid;
+    String pass_str = pass;
+    ssid_str.replace("%20", " ");
+    pass_str.replace("%20", " ");
+    
+    if (ssid_str.length() == 0) {
+        httpd_resp_send(req, "Error: SSID required", -1);
+        return ESP_OK;
+    }
+    
+    Serial.printf("WiFi: Connecting to: %s\n", ssid_str.c_str());
+    
+    // Save credentials
+    preferences.putString(PREF_SSID, ssid_str);
+    preferences.putString(PREF_PASS, pass_str);
+    
+    // Configure station
+    wifi_config_t sta_config = { 0 };
+    strncpy((char*)sta_config.sta.ssid, ssid_str.c_str(), sizeof(sta_config.sta.ssid) - 1);
+    strncpy((char*)sta_config.sta.password, pass_str.c_str(), sizeof(sta_config.sta.password) - 1);
+    
+    esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+    esp_wifi_connect();
+    
+    // Wait for connection
+    int attempts = 0;
+    while (!wifi_connected && attempts < 30) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        attempts++;
+    }
+    
+    if (wifi_connected) {
+        String response = "OK IP: " + String(current_ip);
+        httpd_resp_send(req, response.c_str(), response.length());
+        
+        // Restart after short delay
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        esp_restart();
+    } else {
+        preferences.remove(PREF_SSID);
+        preferences.remove(PREF_PASS);
+        httpd_resp_send(req, "Failed to connect", -1);
+    }
+    
+    return ESP_OK;
+}
+
+static esp_err_t redirect_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static void start_webserver() {
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    
+    if (httpd_start(&server_handle, &config) == ESP_OK) {
+        httpd_uri_t root = { .uri = "/", .method = HTTP_GET, .handler = root_handler };
+        httpd_uri_t scan = { .uri = "/scan", .method = HTTP_GET, .handler = scan_handler };
+        httpd_uri_t conn = { .uri = "/connect", .method = HTTP_GET, .handler = connect_handler };
+        httpd_uri_t redir = { .uri = "/*", .method = HTTP_GET, .handler = redirect_handler };
+        
+        httpd_register_uri_handler(server_handle, &root);
+        httpd_register_uri_handler(server_handle, &scan);
+        httpd_register_uri_handler(server_handle, &conn);
+        httpd_register_uri_handler(server_handle, &redir);
+        
+        Serial.println("WiFi: Web server started");
+    }
+}
 
 void wifi_manager_init() {
     preferences.begin(PREF_NAMESPACE, false);
+    
+    // Initialize TCP/IP and event loop
+    esp_netif_init();
+    esp_event_loop_create_default();
+    
+    // Register event handlers
+    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+    
+    // Create default netifs
+    ap_netif = esp_netif_create_default_wifi_ap();
+    sta_netif = esp_netif_create_default_wifi_sta();
+    
+    // Init WiFi
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&cfg);
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
     
     String saved_ssid = preferences.getString(PREF_SSID, "");
     String saved_pass = preferences.getString(PREF_PASS, "");
     
     if (saved_ssid.length() > 0) {
-        // Try to connect to saved network
-        Serial.printf("WiFi: Connecting to saved network: %s\n", saved_ssid.c_str());
+        Serial.printf("WiFi: Connecting to saved: %s\n", saved_ssid.c_str());
         status_message = "Connecting to " + saved_ssid + "...";
         current_state = WIFI_STATE_CONNECTING;
         
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(saved_ssid.c_str(), saved_pass.c_str());
+        // Configure as station
+        esp_wifi_set_mode(WIFI_MODE_STA);
+        
+        wifi_config_t sta_config = { 0 };
+        strncpy((char*)sta_config.sta.ssid, saved_ssid.c_str(), sizeof(sta_config.sta.ssid) - 1);
+        strncpy((char*)sta_config.sta.password, saved_pass.c_str(), sizeof(sta_config.sta.password) - 1);
+        
+        esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+        esp_wifi_start();
+        esp_wifi_connect();
+        
         connect_start_time = millis();
     } else {
-        // No saved credentials, start AP mode
-        Serial.println("WiFi: No saved credentials, starting AP mode");
+        Serial.println("WiFi: No credentials, starting AP");
         wifi_manager_start_ap();
     }
 }
 
 void wifi_manager_loop() {
-    // Handle DNS for captive portal
-    if (current_state == WIFI_STATE_AP_MODE) {
-        dnsServer.processNextRequest();
-    }
-    
-    // Handle connection state
     if (current_state == WIFI_STATE_CONNECTING) {
-        if (WiFi.status() == WL_CONNECTED) {
+        if (wifi_connected) {
             current_state = WIFI_STATE_CONNECTED;
-            status_message = "Connected: " + WiFi.localIP().toString();
-            Serial.printf("WiFi: Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-            
-            // Start web server in station mode too (for Phase 2 admin UI)
-            if (!server_started) {
-                setup_routes();
-                server.begin();
-                server_started = true;
-            }
+            start_webserver();  // Start web server in STA mode too
         } else if (millis() - connect_start_time > CONNECT_TIMEOUT_MS) {
-            Serial.println("WiFi: Connection timeout, starting AP mode");
+            Serial.println("WiFi: Timeout, starting AP");
             current_state = WIFI_STATE_FAILED;
-            status_message = "Connection failed";
             wifi_manager_start_ap();
         }
     }
@@ -288,154 +357,44 @@ const char* wifi_manager_get_status() {
 }
 
 String wifi_manager_get_ip() {
-    if (current_state == WIFI_STATE_CONNECTED) {
-        return WiFi.localIP().toString();
-    } else if (current_state == WIFI_STATE_AP_MODE) {
-        return WiFi.softAPIP().toString();
-    }
-    return "N/A";
+    return String(current_ip);
 }
 
 void wifi_manager_start_ap() {
-    Serial.println("WiFi: Starting AP mode...");
+    Serial.println("WiFi: Starting AP mode");
     
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASS);
+    esp_wifi_stop();
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
     
-    // Start DNS server for captive portal
-    dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+    wifi_config_t ap_config = { 0 };
+    strncpy((char*)ap_config.ap.ssid, AP_SSID, sizeof(ap_config.ap.ssid));
+    ap_config.ap.ssid_len = strlen(AP_SSID);
+    ap_config.ap.channel = AP_CHANNEL;
+    ap_config.ap.max_connection = AP_MAX_CONN;
+    ap_config.ap.authmode = WIFI_AUTH_OPEN;
+    
+    esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+    esp_wifi_start();
+    
+    // Get AP IP
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(ap_netif, &ip_info);
+    snprintf(current_ip, sizeof(current_ip), IPSTR, IP2STR(&ip_info.ip));
     
     current_state = WIFI_STATE_AP_MODE;
     status_message = String("AP: ") + AP_SSID;
     
-    Serial.printf("WiFi: AP started - SSID: %s, IP: %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
+    Serial.printf("WiFi: AP started - %s @ %s\n", AP_SSID, current_ip);
     
-    // Start web server
-    if (!server_started) {
-        start_captive_portal();
-    }
+    start_webserver();
 }
 
 bool wifi_manager_has_credentials() {
-    String saved_ssid = preferences.getString(PREF_SSID, "");
-    return saved_ssid.length() > 0;
+    return preferences.getString(PREF_SSID, "").length() > 0;
 }
 
 void wifi_manager_clear_credentials() {
     preferences.remove(PREF_SSID);
     preferences.remove(PREF_PASS);
     Serial.println("WiFi: Credentials cleared");
-}
-
-static void setup_routes() {
-    // Captive portal detection endpoints
-    server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->redirect("/");
-    });
-    server.on("/fwlink", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->redirect("/");
-    });
-    server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->redirect("/");
-    });
-    server.on("/canonical.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->redirect("/");
-    });
-    
-    // Main page
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send_P(200, "text/html", CAPTIVE_PORTAL_HTML);
-    });
-    
-    // Scan for networks
-    server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request) {
-        String json = "[";
-        int n = WiFi.scanComplete();
-        if (n == -2) {
-            WiFi.scanNetworks(true);
-        } else if (n > 0) {
-            for (int i = 0; i < n; i++) {
-                if (i > 0) json += ",";
-                json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",";
-                json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
-                json += "\"secure\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN) + "}";
-            }
-            WiFi.scanDelete();
-            WiFi.scanNetworks(true);  // Start new scan for next request
-        }
-        json += "]";
-        request->send(200, "application/json", json);
-    });
-    
-    // Connect to network
-    server.on("/connect", HTTP_POST, [](AsyncWebServerRequest *request) {
-        String ssid = request->arg("ssid");
-        String pass = request->arg("pass");
-        
-        if (ssid.length() == 0) {
-            request->send(200, "application/json", "{\"success\":false,\"message\":\"SSID required\"}");
-            return;
-        }
-        
-        Serial.printf("WiFi: Attempting connection to: %s\n", ssid.c_str());
-        
-        // Save credentials
-        preferences.putString(PREF_SSID, ssid);
-        preferences.putString(PREF_PASS, pass);
-        
-        // Try to connect
-        WiFi.mode(WIFI_AP_STA);  // Keep AP running while connecting
-        WiFi.begin(ssid.c_str(), pass.c_str());
-        
-        // Wait for connection (with timeout)
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-            delay(500);
-            Serial.print(".");
-            attempts++;
-        }
-        Serial.println();
-        
-        if (WiFi.status() == WL_CONNECTED) {
-            String ip = WiFi.localIP().toString();
-            Serial.printf("WiFi: Connected! IP: %s\n", ip.c_str());
-            request->send(200, "application/json", "{\"success\":true,\"ip\":\"" + ip + "\"}");
-            
-            // Schedule restart to apply clean state
-            delay(2000);
-            ESP.restart();
-        } else {
-            Serial.println("WiFi: Connection failed");
-            preferences.remove(PREF_SSID);
-            preferences.remove(PREF_PASS);
-            request->send(200, "application/json", "{\"success\":false,\"message\":\"Connection failed. Check password.\"}");
-        }
-    });
-    
-    // Status endpoint
-    server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-        String json = "{";
-        json += "\"state\":\"" + String(current_state) + "\",";
-        json += "\"status\":\"" + status_message + "\",";
-        json += "\"ip\":\"" + wifi_manager_get_ip() + "\",";
-        json += "\"rssi\":" + String(WiFi.RSSI());
-        json += "}";
-        request->send(200, "application/json", json);
-    });
-}
-
-static void start_captive_portal() {
-    setup_routes();
-    
-    // Catch-all for captive portal
-    server.onNotFound([](AsyncWebServerRequest *request) {
-        request->redirect("/");
-    });
-    
-    server.begin();
-    server_started = true;
-    Serial.println("WiFi: Captive portal started");
-    
-    // Start initial WiFi scan
-    WiFi.scanNetworks(true);
 }
