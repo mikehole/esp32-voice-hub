@@ -292,7 +292,9 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
 // ============== OpenClaw Integration ==============
 
 static char openclaw_endpoint[128] = {0};
+static char openclaw_token[128] = {0};
 static const char* PREF_OPENCLAW_KEY = "openclaw_url";
+static const char* PREF_OPENCLAW_TOKEN = "openclaw_tok";
 
 void openclaw_set_endpoint(const char* url) {
     strncpy(openclaw_endpoint, url, sizeof(openclaw_endpoint) - 1);
@@ -311,12 +313,40 @@ void openclaw_set_endpoint(const char* url) {
     Serial.printf("OpenClaw: Endpoint saved: %s\n", openclaw_endpoint);
 }
 
+void openclaw_set_token(const char* token) {
+    strncpy(openclaw_token, token, sizeof(openclaw_token) - 1);
+    openclaw_token[sizeof(openclaw_token) - 1] = '\0';
+    
+    prefs.begin(PREF_NAMESPACE, false);
+    prefs.putString(PREF_OPENCLAW_TOKEN, openclaw_token);
+    prefs.end();
+    
+    Serial.println("OpenClaw: Token saved");
+}
+
 bool openclaw_has_endpoint() {
     return strlen(openclaw_endpoint) > 5;
 }
 
+bool openclaw_has_token() {
+    return strlen(openclaw_token) > 5;
+}
+
 const char* openclaw_get_endpoint() {
     return openclaw_endpoint;
+}
+
+const char* openclaw_get_token() {
+    static char masked[32];
+    if (!openclaw_has_token()) {
+        return "(not set)";
+    }
+    size_t len = strlen(openclaw_token);
+    if (len <= 8) {
+        return "****";
+    }
+    snprintf(masked, sizeof(masked), "%.4s...%s", openclaw_token, openclaw_token + len - 4);
+    return masked;
 }
 
 char* openclaw_send_message(const char* message) {
@@ -386,6 +416,11 @@ char* openclaw_send_message(const char* message) {
     client.print("Host: ");
     client.print(host);
     client.print("\r\n");
+    if (openclaw_has_token()) {
+        client.print("Authorization: Bearer ");
+        client.print(openclaw_token);
+        client.print("\r\n");
+    }
     client.print("Content-Type: application/json\r\n");
     client.print("Content-Length: ");
     client.print(body.length());
@@ -436,13 +471,18 @@ char* openclaw_send_message(const char* message) {
     return result;
 }
 
-// Load OpenClaw endpoint from NVS (call in openai_init)
+// Load OpenClaw settings from NVS (call in openai_init)
 static void load_openclaw_endpoint() {
     prefs.begin(PREF_NAMESPACE, true);
     String url = prefs.getString(PREF_OPENCLAW_KEY, "");
     if (url.length() > 0) {
         strncpy(openclaw_endpoint, url.c_str(), sizeof(openclaw_endpoint) - 1);
         Serial.printf("OpenClaw: Endpoint loaded: %s\n", openclaw_endpoint);
+    }
+    String token = prefs.getString(PREF_OPENCLAW_TOKEN, "");
+    if (token.length() > 0) {
+        strncpy(openclaw_token, token.c_str(), sizeof(openclaw_token) - 1);
+        Serial.println("OpenClaw: Token loaded from NVS");
     }
     prefs.end();
 }

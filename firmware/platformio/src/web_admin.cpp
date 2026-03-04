@@ -74,6 +74,9 @@ static const char ADMIN_HTML[] PROGMEM =
 "<div id=\"openclaw\">Loading...</div>"
 "<input type=\"text\" id=\"ocurl\" placeholder=\"https://mikesdocker\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
 "<button onclick=\"saveOC()\">Save Endpoint</button>"
+"<br>"
+"<input type=\"password\" id=\"octoken\" placeholder=\"hooks.token\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
+"<button onclick=\"saveOCToken()\">Save Token</button>"
 "<button onclick=\"testOC()\">Test AI Response</button>"
 "<div id=\"ocresult\" style=\"margin-top:10px\"></div>"
 "</div>"
@@ -95,7 +98,7 @@ static const char ADMIN_HTML[] PROGMEM =
 "document.getElementById('brightness').value=d.brightness;"
 "document.getElementById('bval').innerText=d.brightness;"
 "document.getElementById('openai').innerHTML='API Key: '+(d.openaiKey||'(not set)');"
-"document.getElementById('openclaw').innerHTML='Endpoint: '+(d.openclawUrl||'(not set)');"
+"document.getElementById('openclaw').innerHTML='Endpoint: '+(d.openclawUrl||'(not set)')+' | Token: '+(d.openclawToken||'(not set)');"
 "});"
 "}"
 "function setBrightness(v){"
@@ -143,8 +146,16 @@ static const char ADMIN_HTML[] PROGMEM =
 "var u=document.getElementById('ocurl').value;"
 "if(!u){alert('Enter OpenClaw URL');return;}"
 "fetch('/api/openclaw/endpoint',{method:'POST',headers:{'Content-Type':'text/plain'},body:u}).then(r=>r.text()).then(t=>{"
-"document.getElementById('openclaw').innerText=t;"
+"alert(t);load();"
 "document.getElementById('ocurl').value='';"
+"});"
+"}"
+"function saveOCToken(){"
+"var t=document.getElementById('octoken').value;"
+"if(!t){alert('Enter hooks token');return;}"
+"fetch('/api/openclaw/token',{method:'POST',headers:{'Content-Type':'text/plain'},body:t}).then(r=>r.text()).then(t=>{"
+"alert(t);load();"
+"document.getElementById('octoken').value='';"
 "});"
 "}"
 "function testOC(){"
@@ -179,7 +190,7 @@ static esp_err_t status_handler(httpd_req_t *req) {
     int brightness = get_brightness ? get_brightness() : 100;
     
     snprintf(json, sizeof(json),
-        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\",\"openclawUrl\":\"%s\"}",
+        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\",\"openclawUrl\":\"%s\",\"openclawToken\":\"%s\"}",
         wifi_manager_get_ip().c_str(),
         uptime,
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024,
@@ -187,7 +198,8 @@ static esp_err_t status_handler(httpd_req_t *req) {
         rssi,
         brightness,
         openai_get_api_key(),
-        openclaw_get_endpoint()
+        openclaw_get_endpoint(),
+        openclaw_get_token()
     );
     
     httpd_resp_set_type(req, "application/json");
@@ -492,6 +504,30 @@ static esp_err_t openclaw_endpoint_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// OpenClaw token save (POST body)
+static esp_err_t openclaw_token_handler(httpd_req_t *req) {
+    char token[128] = {0};
+    
+    int content_len = req->content_len;
+    if (content_len <= 0 || content_len >= (int)sizeof(token)) {
+        httpd_resp_send(req, "Invalid token length", 20);
+        return ESP_OK;
+    }
+    
+    int received = httpd_req_recv(req, token, content_len);
+    if (received != content_len) {
+        httpd_resp_send(req, "Failed to receive token", 23);
+        return ESP_OK;
+    }
+    token[received] = '\0';
+    
+    openclaw_set_token(token);
+    char resp[64];
+    snprintf(resp, sizeof(resp), "Token saved: %s", openclaw_get_token());
+    httpd_resp_send(req, resp, strlen(resp));
+    return ESP_OK;
+}
+
 // OpenClaw ask - transcribe + send to AI
 static esp_err_t openclaw_ask_handler(httpd_req_t *req) {
     if (!openai_has_api_key()) {
@@ -549,6 +585,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t openai_key = { .uri = "/api/openai/key", .method = HTTP_POST, .handler = openai_key_handler };
     httpd_uri_t openai_transcribe = { .uri = "/api/openai/transcribe", .method = HTTP_GET, .handler = openai_transcribe_handler };
     httpd_uri_t oc_endpoint = { .uri = "/api/openclaw/endpoint", .method = HTTP_POST, .handler = openclaw_endpoint_handler };
+    httpd_uri_t oc_token = { .uri = "/api/openclaw/token", .method = HTTP_POST, .handler = openclaw_token_handler };
     httpd_uri_t oc_ask = { .uri = "/api/openclaw/ask", .method = HTTP_GET, .handler = openclaw_ask_handler };
     
     esp_err_t err;
@@ -565,6 +602,7 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &openai_key);
     err = httpd_register_uri_handler(server, &openai_transcribe);
     err = httpd_register_uri_handler(server, &oc_endpoint);
+    err = httpd_register_uri_handler(server, &oc_token);
     err = httpd_register_uri_handler(server, &oc_ask);
     Serial.printf("Admin: /api/openai/* + /api/openclaw/* registered: %d\n", err);
     

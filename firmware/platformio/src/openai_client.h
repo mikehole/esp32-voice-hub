@@ -28,8 +28,11 @@ const char* openai_get_last_error();
 
 // OpenClaw integration
 void openclaw_set_endpoint(const char* url);  // e.g., "https://mikesdocker"
+void openclaw_set_token(const char* token);   // hooks.token for auth
 bool openclaw_has_endpoint();
+bool openclaw_has_token();
 const char* openclaw_get_endpoint();
+const char* openclaw_get_token();  // Returns masked version
 
 // Send message to OpenClaw and get response
 // Returns response text (caller must free) or NULL on error
