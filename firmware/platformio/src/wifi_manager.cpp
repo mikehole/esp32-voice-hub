@@ -37,8 +37,9 @@ extern "C" int lwip_hook_ip6_input(struct pbuf *p, struct netif *inp) {
 #define PREF_SSID "ssid"
 #define PREF_PASS "pass"
 
-// Connection timeout
-#define CONNECT_TIMEOUT_MS 30000
+// Connection timeout and retries
+#define CONNECT_TIMEOUT_MS 15000
+#define MAX_CONNECT_RETRIES 3
 
 // Global state
 static WiFiState current_state = WIFI_STATE_IDLE;
@@ -50,6 +51,7 @@ static esp_netif_t* sta_netif = NULL;
 static unsigned long connect_start_time = 0;
 static char current_ip[16] = "0.0.0.0";
 static bool wifi_connected = false;
+static int connect_retry_count = 0;
 
 // Forward declarations
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
@@ -284,14 +286,29 @@ void wifi_manager_loop() {
     if (current_state == WIFI_STATE_CONNECTING) {
         if (wifi_connected) {
             current_state = WIFI_STATE_CONNECTED;
+            connect_retry_count = 0;
             Serial.println("WiFi: Connected, starting webserver");
             start_webserver();
             webserver_started = true;
         } else if (millis() - connect_start_time > CONNECT_TIMEOUT_MS) {
-            Serial.println("WiFi: Timeout, starting AP");
-            current_state = WIFI_STATE_FAILED;
-            wifi_manager_start_ap();
-            webserver_started = true;
+            connect_retry_count++;
+            Serial.printf("WiFi: Timeout (attempt %d/%d)\n", connect_retry_count, MAX_CONNECT_RETRIES);
+            
+            if (connect_retry_count < MAX_CONNECT_RETRIES) {
+                // Retry connection
+                Serial.println("WiFi: Retrying...");
+                esp_wifi_disconnect();
+                delay(500);
+                esp_wifi_connect();
+                connect_start_time = millis();
+            } else {
+                // Give up, start AP
+                Serial.println("WiFi: Max retries reached, starting AP");
+                current_state = WIFI_STATE_FAILED;
+                connect_retry_count = 0;
+                wifi_manager_start_ap();
+                webserver_started = true;
+            }
         }
     }
     
