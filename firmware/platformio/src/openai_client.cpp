@@ -16,6 +16,54 @@ static void update_ui() {
     status_ring_update();
 }
 
+// Non-blocking read string with UI updates
+static String readStringWithUI(WiFiClientSecure& client, unsigned long timeoutMs = 30000) {
+    String result = "";
+    unsigned long start = millis();
+    unsigned long lastUI = millis();
+    
+    while (millis() - start < timeoutMs) {
+        if (client.available()) {
+            result += (char)client.read();
+        } else if (!client.connected()) {
+            break;
+        } else {
+            // No data, update UI while waiting
+            if (millis() - lastUI > 30) {
+                update_ui();
+                lastUI = millis();
+            }
+            delay(1);
+        }
+    }
+    return result;
+}
+
+// Non-blocking read line with UI updates
+static String readLineWithUI(WiFiClientSecure& client, unsigned long timeoutMs = 5000) {
+    String result = "";
+    unsigned long start = millis();
+    unsigned long lastUI = millis();
+    
+    while (millis() - start < timeoutMs) {
+        if (client.available()) {
+            char c = client.read();
+            if (c == '\n') break;
+            if (c != '\r') result += c;
+        } else if (!client.connected()) {
+            break;
+        } else {
+            // No data, update UI while waiting
+            if (millis() - lastUI > 30) {
+                update_ui();
+                lastUI = millis();
+            }
+            delay(1);
+        }
+    }
+    return result;
+}
+
 static const char* TAG = "openai";
 static const char* PREF_NAMESPACE = "openai";
 static const char* PREF_KEY = "api_key";
@@ -412,23 +460,22 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
         return NULL;
     }
     
-    // Skip HTTP headers
-    while (client.available()) {
-        String line = client.readStringUntil('\n');
-        if (line == "\r") break;
+    // Skip HTTP headers (with UI updates)
+    while (client.connected()) {
+        String line = readLineWithUI(client);
+        if (line.length() == 0 || line == "\r") break;
         
         // Check for error status
         if (line.startsWith("HTTP/1.1")) {
             int code = line.substring(9, 12).toInt();
             if (code != 200) {
                 snprintf(last_error, sizeof(last_error), "HTTP %d", code);
-                // Continue to read error body
             }
         }
     }
     
-    // Read response body
-    String response = client.readString();
+    // Read response body (with UI updates)
+    String response = readStringWithUI(client);
     client.stop();
     
     Serial.printf("OpenAI: Response: %s\n", response.c_str());
@@ -637,34 +684,19 @@ char* openclaw_send_message(const char* message) {
         return NULL;
     }
     
-    // Read OpenClaw response
-    String response = "";
-    bool headersEnded = false;
+    // Read OpenClaw response headers (with UI updates)
     int httpCode = 0;
-    unsigned long lastUiUpdate = millis();
-    while (client.available() || client.connected()) {
-        if (client.available()) {
-            String line = client.readStringUntil('\n');
-            if (!headersEnded) {
-                if (line.startsWith("HTTP/1.1")) {
-                    httpCode = line.substring(9, 12).toInt();
-                }
-                if (line == "\r" || line == "") {
-                    headersEnded = true;
-                }
-            } else {
-                response += line;
-            }
-        } else {
-            // No data available yet, keep UI animating
-            if (millis() - lastUiUpdate > 50) {
-                update_ui();
-                lastUiUpdate = millis();
-            }
-            delay(10);
+    while (client.connected()) {
+        String line = readLineWithUI(client);
+        if (line.length() == 0) break;
+        
+        if (line.startsWith("HTTP/1.1")) {
+            httpCode = line.substring(9, 12).toInt();
         }
-        if (!client.available() && millis() - start > 60000) break;
     }
+    
+    // Read response body (with UI updates)
+    String response = readStringWithUI(client, 60000);
     client.stop();
     
     Serial.printf("OpenClaw: HTTP %d\n", httpCode);
