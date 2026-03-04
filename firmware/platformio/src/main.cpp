@@ -501,7 +501,10 @@ void check_touch() {
 
 void setup() {
     Serial.begin(115200);
+    delay(2000);  // Wait for serial monitor to connect
+    Serial.println("\n\n========================================");
     Serial.println("ESP32 Voice Hub - Starting...");
+    Serial.println("========================================\n");
     
     Touch_Init();
     Serial.println("Touch initialized");
