@@ -18,6 +18,9 @@ static char last_error[256] = {0};
 // OpenAI API endpoint
 static const char* WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 
+// Forward declaration
+static void load_openclaw_endpoint();
+
 void openai_init() {
     prefs.begin(PREF_NAMESPACE, true);  // Read-only
     String key = prefs.getString(PREF_KEY, "");
@@ -28,6 +31,9 @@ void openai_init() {
         Serial.println("OpenAI: No API key configured");
     }
     prefs.end();
+    
+    // Also load OpenClaw endpoint
+    load_openclaw_endpoint();
 }
 
 void openai_set_api_key(const char* key) {
@@ -281,4 +287,162 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     
     transcribing = false;
     return result;
+}
+
+// ============== OpenClaw Integration ==============
+
+static char openclaw_endpoint[128] = {0};
+static const char* PREF_OPENCLAW_KEY = "openclaw_url";
+
+void openclaw_set_endpoint(const char* url) {
+    strncpy(openclaw_endpoint, url, sizeof(openclaw_endpoint) - 1);
+    openclaw_endpoint[sizeof(openclaw_endpoint) - 1] = '\0';
+    
+    // Remove trailing slash if present
+    size_t len = strlen(openclaw_endpoint);
+    if (len > 0 && openclaw_endpoint[len - 1] == '/') {
+        openclaw_endpoint[len - 1] = '\0';
+    }
+    
+    prefs.begin(PREF_NAMESPACE, false);
+    prefs.putString(PREF_OPENCLAW_KEY, openclaw_endpoint);
+    prefs.end();
+    
+    Serial.printf("OpenClaw: Endpoint saved: %s\n", openclaw_endpoint);
+}
+
+bool openclaw_has_endpoint() {
+    return strlen(openclaw_endpoint) > 5;
+}
+
+const char* openclaw_get_endpoint() {
+    return openclaw_endpoint;
+}
+
+char* openclaw_send_message(const char* message) {
+    if (!openclaw_has_endpoint()) {
+        strcpy(last_error, "No OpenClaw endpoint configured");
+        return NULL;
+    }
+    
+    if (!message || strlen(message) == 0) {
+        strcpy(last_error, "Empty message");
+        return NULL;
+    }
+    
+    Serial.printf("OpenClaw: Sending message: %s\n", message);
+    
+    WiFiClientSecure client;
+    client.setInsecure();  // Skip cert verification for local endpoints
+    client.setTimeout(60);  // 60 second timeout for AI response
+    
+    // Parse host from endpoint URL
+    String url = String(openclaw_endpoint);
+    String host;
+    int port = 443;
+    
+    if (url.startsWith("https://")) {
+        url = url.substring(8);
+    } else if (url.startsWith("http://")) {
+        url = url.substring(7);
+        port = 80;
+    }
+    
+    int slashPos = url.indexOf('/');
+    if (slashPos > 0) {
+        host = url.substring(0, slashPos);
+    } else {
+        host = url;
+    }
+    
+    int colonPos = host.indexOf(':');
+    if (colonPos > 0) {
+        port = host.substring(colonPos + 1).toInt();
+        host = host.substring(0, colonPos);
+    }
+    
+    Serial.printf("OpenClaw: Connecting to %s:%d\n", host.c_str(), port);
+    
+    if (!client.connect(host.c_str(), port)) {
+        strcpy(last_error, "Connection to OpenClaw failed");
+        return NULL;
+    }
+    
+    // Build JSON body
+    String body = "{\"message\":\"";
+    // Escape the message for JSON
+    for (size_t i = 0; i < strlen(message); i++) {
+        char c = message[i];
+        if (c == '"') body += "\\\"";
+        else if (c == '\\') body += "\\\\";
+        else if (c == '\n') body += "\\n";
+        else if (c == '\r') body += "\\r";
+        else body += c;
+    }
+    body += "\",\"sessionKey\":\"voice-hub\"}";
+    
+    // Send HTTP request
+    client.print("POST /hooks/agent HTTP/1.1\r\n");
+    client.print("Host: ");
+    client.print(host);
+    client.print("\r\n");
+    client.print("Content-Type: application/json\r\n");
+    client.print("Content-Length: ");
+    client.print(body.length());
+    client.print("\r\n");
+    client.print("Connection: close\r\n\r\n");
+    client.print(body);
+    
+    Serial.println("OpenClaw: Waiting for response...");
+    
+    // Wait for response
+    unsigned long start = millis();
+    while (!client.available() && millis() - start < 60000) {
+        delay(100);
+    }
+    
+    if (!client.available()) {
+        strcpy(last_error, "OpenClaw response timeout");
+        client.stop();
+        return NULL;
+    }
+    
+    // Read response
+    String response = "";
+    bool headersEnded = false;
+    while (client.available() || client.connected()) {
+        if (client.available()) {
+            String line = client.readStringUntil('\n');
+            if (!headersEnded) {
+                if (line == "\r" || line == "") {
+                    headersEnded = true;
+                }
+            } else {
+                response += line;
+            }
+        }
+        if (!client.available() && millis() - start > 60000) break;
+    }
+    client.stop();
+    
+    Serial.printf("OpenClaw: Response: %s\n", response.c_str());
+    
+    // Return response (the /hooks/agent returns plain text or JSON)
+    char* result = (char*)malloc(response.length() + 1);
+    if (result) {
+        strcpy(result, response.c_str());
+    }
+    
+    return result;
+}
+
+// Load OpenClaw endpoint from NVS (call in openai_init)
+static void load_openclaw_endpoint() {
+    prefs.begin(PREF_NAMESPACE, true);
+    String url = prefs.getString(PREF_OPENCLAW_KEY, "");
+    if (url.length() > 0) {
+        strncpy(openclaw_endpoint, url.c_str(), sizeof(openclaw_endpoint) - 1);
+        Serial.printf("OpenClaw: Endpoint loaded: %s\n", openclaw_endpoint);
+    }
+    prefs.end();
 }

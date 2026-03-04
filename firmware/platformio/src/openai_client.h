@@ -26,4 +26,13 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size);
 // Get last error message
 const char* openai_get_last_error();
 
+// OpenClaw integration
+void openclaw_set_endpoint(const char* url);  // e.g., "https://mikesdocker"
+bool openclaw_has_endpoint();
+const char* openclaw_get_endpoint();
+
+// Send message to OpenClaw and get response
+// Returns response text (caller must free) or NULL on error
+char* openclaw_send_message(const char* message);
+
 #endif // OPENAI_CLIENT_H
