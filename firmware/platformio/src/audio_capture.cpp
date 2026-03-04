@@ -87,7 +87,7 @@ static bool init_dac_output() {
     
     i2s_std_config_t tx_std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = AUDIO_I2S_BCLK_PIN,
@@ -267,9 +267,12 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     playing = true;
     
-    // Convert mono to stereo (duplicate each sample to L+R channels)
+    // Convert mono to stereo with volume scaling
     // Input: 16-bit mono samples
     // Output: 16-bit stereo (L, R, L, R, ...)
+    // Volume: Scale down to avoid clipping (30% of original)
+    const float volume = 0.3f;
+    
     size_t stereo_buf_size = 1024;  // Process 256 mono samples at a time
     int16_t* stereo_buf = (int16_t*)malloc(stereo_buf_size);
     if (!stereo_buf) {
@@ -286,10 +289,10 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     size_t sample_idx = 0;
     
     while (sample_idx < total_mono_samples && playing) {
-        // Fill stereo buffer
+        // Fill stereo buffer with volume-adjusted samples
         size_t samples_to_process = min((size_t)256, total_mono_samples - sample_idx);
         for (size_t i = 0; i < samples_to_process; i++) {
-            int16_t sample = mono_samples[sample_idx + i];
+            int16_t sample = (int16_t)(mono_samples[sample_idx + i] * volume);
             stereo_buf[i * 2] = sample;      // Left
             stereo_buf[i * 2 + 1] = sample;  // Right
         }
