@@ -7,6 +7,14 @@
 #include "conversation.h"
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
+#include "lvgl.h"
+#include "status_ring.h"
+
+// Helper to update UI during blocking operations
+static void update_ui() {
+    lv_timer_handler();
+    status_ring_update();
+}
 
 static const char* TAG = "openai";
 static const char* PREF_NAMESPACE = "openai";
@@ -174,6 +182,7 @@ uint8_t* openai_tts(const char* text, size_t* out_size) {
     // Wait for response headers
     unsigned long start = millis();
     while (!client.available() && millis() - start < 30000) {
+        update_ui();  // Keep UI animating
         delay(10);
     }
     
@@ -392,7 +401,8 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     // Read response
     unsigned long start = millis();
     while (!client.available() && millis() - start < 30000) {
-        delay(100);
+        update_ui();  // Keep UI animating
+        delay(50);
     }
     
     if (!client.available()) {
@@ -613,12 +623,12 @@ char* openclaw_send_message(const char* message) {
     client.print(body);
     
     Serial.println("OpenClaw: Waiting for response...");
-    Serial.printf("OpenClaw: Body: %s\n", body.c_str());
     
     // Wait for response
     unsigned long start = millis();
     while (!client.available() && millis() - start < 60000) {
-        delay(100);
+        update_ui();  // Keep UI animating
+        delay(50);
     }
     
     if (!client.available()) {

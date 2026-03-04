@@ -19,9 +19,9 @@ static ProcessingState current_state = STATE_IDLE;
 static float animation_phase = 0;
 static unsigned long start_time = 0;
 
-// Ring sizes (inner to outer)
-static const int ring_sizes[STATUS_RING_COUNT] = {145, 160, 175};
-static const int ring_widths[STATUS_RING_COUNT] = {8, 6, 4};
+// Ring sizes (inner to outer) - keep closer to avatar, away from wedges
+static const int ring_sizes[STATUS_RING_COUNT] = {140, 148, 156};
+static const int ring_widths[STATUS_RING_COUNT] = {5, 4, 3};
 
 void status_ring_init(lv_obj_t* parent) {
     if (!parent) {
