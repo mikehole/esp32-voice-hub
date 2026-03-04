@@ -38,7 +38,7 @@ extern "C" int lwip_hook_ip6_input(struct pbuf *p, struct netif *inp) {
 #define PREF_PASS "pass"
 
 // Connection timeout
-#define CONNECT_TIMEOUT_MS 15000
+#define CONNECT_TIMEOUT_MS 30000
 
 // Global state
 static WiFiState current_state = WIFI_STATE_IDLE;
