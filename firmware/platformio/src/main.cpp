@@ -176,34 +176,37 @@ void create_recording_ui() {
     lv_obj_remove_style(duration_arc, NULL, LV_PART_KNOB);
     lv_obj_clear_flag(duration_arc, LV_OBJ_FLAG_CLICKABLE);
     
-    // Inner pulsing ring
+    // Inner pulsing ring (fixed size, opacity changes)
     ring_inner = lv_obj_create(recording_container);
-    lv_obj_set_size(ring_inner, 40, 40);
+    lv_obj_set_size(ring_inner, 35, 35);
     lv_obj_center(ring_inner);
     lv_obj_set_style_radius(ring_inner, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(ring_inner, COLOR_REC_RING, 0);
     lv_obj_set_style_bg_opa(ring_inner, LV_OPA_80, 0);
     lv_obj_set_style_border_width(ring_inner, 0, 0);
+    lv_obj_clear_flag(ring_inner, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Middle pulsing ring
+    // Middle pulsing ring (fixed size, border width changes)
     ring_middle = lv_obj_create(recording_container);
     lv_obj_set_size(ring_middle, 65, 65);
     lv_obj_center(ring_middle);
     lv_obj_set_style_radius(ring_middle, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(ring_middle, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(ring_middle, COLOR_REC_RING, 0);
-    lv_obj_set_style_border_width(ring_middle, 3, 0);
+    lv_obj_set_style_border_width(ring_middle, 2, 0);
     lv_obj_set_style_border_opa(ring_middle, LV_OPA_60, 0);
+    lv_obj_clear_flag(ring_middle, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Outer pulsing ring  
+    // Outer pulsing ring (fixed size, border width changes)
     ring_outer = lv_obj_create(recording_container);
-    lv_obj_set_size(ring_outer, 90, 90);
+    lv_obj_set_size(ring_outer, 95, 95);
     lv_obj_center(ring_outer);
     lv_obj_set_style_radius(ring_outer, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(ring_outer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(ring_outer, COLOR_REC_RING, 0);
     lv_obj_set_style_border_width(ring_outer, 2, 0);
     lv_obj_set_style_border_opa(ring_outer, LV_OPA_40, 0);
+    lv_obj_clear_flag(ring_outer, LV_OBJ_FLAG_SCROLLABLE);
     
     // "REC" label
     rec_label = lv_label_create(recording_container);
@@ -245,7 +248,17 @@ void hide_recording_ui() {
 }
 
 void update_recording_ui() {
-    if (!recording_ui_visible || !recording_container) return;
+    if (!recording_ui_visible) return;
+    
+    // Safety checks for all objects
+    if (!recording_container || !duration_arc || !ring_inner || !ring_middle || !ring_outer) {
+        return;
+    }
+    
+    // Throttle updates to avoid overwhelming LVGL (every 50ms)
+    static unsigned long last_update = 0;
+    if (millis() - last_update < 50) return;
+    last_update = millis();
     
     // Get audio level (0-100)
     uint8_t level = audio_get_level();
@@ -263,25 +276,22 @@ void update_recording_ui() {
     if (progress > 100) progress = 100;
     lv_arc_set_value(duration_arc, progress);
     
-    // Pulse rings based on audio level
-    // Inner ring: scales 30-50 based on level
-    int inner_size = 30 + (level * 20 / 100);
-    lv_obj_set_size(ring_inner, inner_size, inner_size);
-    lv_obj_center(ring_inner);
-    
-    // Middle ring: scales 50-75 based on level
-    int middle_size = 50 + (level * 25 / 100);
-    lv_obj_set_size(ring_middle, middle_size, middle_size);
-    lv_obj_center(ring_middle);
-    
-    // Outer ring: scales 70-100 based on level
-    int outer_size = 70 + (level * 30 / 100);
-    lv_obj_set_size(ring_outer, outer_size, outer_size);
-    lv_obj_center(ring_outer);
-    
-    // Adjust opacity based on level for more visual feedback
-    lv_opa_t inner_opa = LV_OPA_50 + (level * (LV_OPA_100 - LV_OPA_50) / 100);
+    // Pulse rings using opacity and border width (no resizing = no relayout)
+    // Inner ring: opacity pulses with level
+    lv_opa_t inner_opa = LV_OPA_30 + (level * (LV_OPA_100 - LV_OPA_30) / 100);
     lv_obj_set_style_bg_opa(ring_inner, inner_opa, 0);
+    
+    // Middle ring: border width 2-8 based on level
+    int middle_border = 2 + (level * 6 / 100);
+    lv_obj_set_style_border_width(ring_middle, middle_border, 0);
+    lv_opa_t middle_opa = LV_OPA_40 + (level * (LV_OPA_90 - LV_OPA_40) / 100);
+    lv_obj_set_style_border_opa(ring_middle, middle_opa, 0);
+    
+    // Outer ring: border width 1-6 based on level
+    int outer_border = 1 + (level * 5 / 100);
+    lv_obj_set_style_border_width(ring_outer, outer_border, 0);
+    lv_opa_t outer_opa = LV_OPA_20 + (level * (LV_OPA_70 - LV_OPA_20) / 100);
+    lv_obj_set_style_border_opa(ring_outer, outer_opa, 0);
 }
 
 void create_radial_ui() {
