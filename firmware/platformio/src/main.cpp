@@ -411,29 +411,27 @@ void check_touch() {
     uint16_t x, y;
     uint8_t touched = getTouch(&x, &y);
     
-    // Press-and-hold for recording when Minerva selected
+    // Tap-to-toggle recording when Minerva selected
     ProcessingState ring_state = status_ring_get_state();
     if (selected_wedge == 0 && ring_state != STATE_THINKING && ring_state != STATE_SPEAKING) {
-        // Touch DOWN on center = start recording
+        // Tap center to start/stop recording
         if (touched && !was_touched && is_center_touch(x, y)) {
-            Serial.println("Center touch DOWN - start recording");
-            if (audio_start_recording()) {
-                status_ring_show(STATE_RECORDING);
+            if (audio_is_recording()) {
+                // Currently recording - stop and process
+                Serial.println("Tap - stop recording");
+                size_t audio_size = 0;
+                const uint8_t* audio_data = audio_stop_recording(&audio_size);
+                Serial.printf("Audio captured: %u bytes\n", audio_size);
+                
+                // Process voice command
+                process_voice_command(audio_data, audio_size);
+            } else {
+                // Not recording - start
+                Serial.println("Tap - start recording");
+                if (audio_start_recording()) {
+                    status_ring_show(STATE_RECORDING);
+                }
             }
-            was_touched = touched;
-            return;
-        }
-        
-        // Touch UP while recording = stop and process
-        if (!touched && was_touched && audio_is_recording()) {
-            Serial.println("Touch UP - stop recording");
-            size_t audio_size = 0;
-            const uint8_t* audio_data = audio_stop_recording(&audio_size);
-            Serial.printf("Audio captured: %u bytes\n", audio_size);
-            
-            // Process voice command
-            process_voice_command(audio_data, audio_size);
-            
             was_touched = touched;
             return;
         }
