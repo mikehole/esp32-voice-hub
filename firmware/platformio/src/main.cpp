@@ -16,6 +16,7 @@
 #include "web_admin.h"
 #include "audio_capture.h"
 #include "openai_client.h"
+#include "conversation.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -545,6 +546,11 @@ void setup() {
     
     // Initialize OpenAI client
     openai_init();
+    
+    // Initialize conversation history (requires SD card)
+    if (conversation_init()) {
+        Serial.printf("Conversation: %d messages loaded\n", conversation_get_count());
+    }
     
     create_radial_ui();
     

@@ -4,6 +4,7 @@
  */
 
 #include "openai_client.h"
+#include "conversation.h"
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
 
@@ -709,4 +710,174 @@ static void load_openclaw_endpoint() {
         Serial.println("OpenClaw: Token loaded from NVS");
     }
     prefs.end();
+}
+
+char* openclaw_send_with_history(const char* message) {
+    if (!openclaw_has_endpoint()) {
+        strcpy(last_error, "No OpenClaw endpoint configured");
+        return NULL;
+    }
+    
+    if (!openclaw_has_token()) {
+        strcpy(last_error, "No OpenClaw token configured");
+        return NULL;
+    }
+    
+    if (!message || strlen(message) == 0) {
+        strcpy(last_error, "Empty message");
+        return NULL;
+    }
+    
+    // Add user message to conversation history
+    conversation_add_message("user", message);
+    
+    Serial.printf("OpenClaw: Sending with history (%d messages)\n", conversation_get_count());
+    
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(60);
+    
+    // Parse host from endpoint URL
+    String url = String(openclaw_endpoint);
+    String host;
+    int port = 443;
+    
+    if (url.startsWith("https://")) {
+        url = url.substring(8);
+    } else if (url.startsWith("http://")) {
+        url = url.substring(7);
+        port = 80;
+    }
+    
+    int slashPos = url.indexOf('/');
+    if (slashPos > 0) {
+        host = url.substring(0, slashPos);
+    } else {
+        host = url;
+    }
+    
+    int colonPos = host.indexOf(':');
+    if (colonPos > 0) {
+        port = host.substring(colonPos + 1).toInt();
+        host = host.substring(0, colonPos);
+    }
+    
+    Serial.printf("OpenClaw: Connecting to %s:%d\n", host.c_str(), port);
+    
+    if (!client.connect(host.c_str(), port)) {
+        strcpy(last_error, "Connection to OpenClaw failed");
+        return NULL;
+    }
+    
+    // Build body with full conversation history
+    char* messages_json = conversation_get_messages_json();
+    if (!messages_json) {
+        strcpy(last_error, "Failed to build messages JSON");
+        client.stop();
+        return NULL;
+    }
+    
+    String body = "{\"model\":\"default\",\"messages\":";
+    body += messages_json;
+    body += "}";
+    free(messages_json);
+    
+    Serial.printf("OpenClaw: Body length: %d\n", body.length());
+    
+    // Send HTTP request
+    client.print("POST /v1/chat/completions HTTP/1.1\r\n");
+    client.print("Host: ");
+    client.print(host);
+    client.print("\r\n");
+    client.print("Authorization: Bearer ");
+    client.print(openclaw_token);
+    client.print("\r\n");
+    client.print("Content-Type: application/json\r\n");
+    client.print("Content-Length: ");
+    client.print(body.length());
+    client.print("\r\n");
+    client.print("Connection: close\r\n\r\n");
+    client.print(body);
+    
+    Serial.println("OpenClaw: Waiting for response...");
+    
+    // Wait for response
+    unsigned long start = millis();
+    while (!client.available() && millis() - start < 60000) {
+        delay(100);
+    }
+    
+    if (!client.available()) {
+        strcpy(last_error, "OpenClaw response timeout");
+        client.stop();
+        return NULL;
+    }
+    
+    // Read response
+    String response = "";
+    bool headersEnded = false;
+    int httpCode = 0;
+    while (client.available() || client.connected()) {
+        if (client.available()) {
+            String line = client.readStringUntil('\n');
+            if (!headersEnded) {
+                if (line.startsWith("HTTP/1.1")) {
+                    httpCode = line.substring(9, 12).toInt();
+                }
+                if (line == "\r" || line == "") {
+                    headersEnded = true;
+                }
+            } else {
+                response += line;
+            }
+        }
+        if (!client.available() && millis() - start > 60000) break;
+    }
+    client.stop();
+    
+    Serial.printf("OpenClaw: HTTP %d\n", httpCode);
+    
+    if (httpCode != 200) {
+        snprintf(last_error, sizeof(last_error), "HTTP %d: %s", httpCode, response.c_str());
+        return NULL;
+    }
+    
+    // Parse response
+    int contentStart = response.indexOf("\"content\"");
+    if (contentStart < 0) {
+        strcpy(last_error, "No content in response");
+        return NULL;
+    }
+    
+    int colonPos2 = response.indexOf(":", contentStart);
+    int quoteStart = response.indexOf("\"", colonPos2 + 1);
+    int quoteEnd = quoteStart + 1;
+    
+    while (quoteEnd < (int)response.length()) {
+        if (response[quoteEnd] == '"' && response[quoteEnd - 1] != '\\') {
+            break;
+        }
+        quoteEnd++;
+    }
+    
+    if (quoteStart < 0 || quoteEnd <= quoteStart) {
+        strcpy(last_error, "Failed to parse response content");
+        return NULL;
+    }
+    
+    String content = response.substring(quoteStart + 1, quoteEnd);
+    content.replace("\\n", "\n");
+    content.replace("\\\"", "\"");
+    content.replace("\\\\", "\\");
+    
+    // Add assistant response to conversation history
+    conversation_add_message("assistant", content.c_str());
+    
+    char* result = (char*)malloc(content.length() + 1);
+    if (result) {
+        strcpy(result, content.c_str());
+        Serial.printf("OpenClaw: Response: %s\n", result);
+    }
+    
+    return result;
 }

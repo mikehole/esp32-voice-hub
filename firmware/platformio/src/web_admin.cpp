@@ -12,6 +12,7 @@
 #include "lvgl.h"
 #include "audio_capture.h"
 #include "openai_client.h"
+#include "conversation.h"
 
 // Brightness callbacks
 static brightness_getter_t get_brightness = NULL;
@@ -190,7 +191,7 @@ static esp_err_t status_handler(httpd_req_t *req) {
     int brightness = get_brightness ? get_brightness() : 100;
     
     snprintf(json, sizeof(json),
-        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\",\"openclawUrl\":\"%s\",\"openclawToken\":\"%s\"}",
+        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\",\"openclawUrl\":\"%s\",\"openclawToken\":\"%s\",\"sdCard\":\"%s\",\"conversationCount\":%d}",
         wifi_manager_get_ip().c_str(),
         uptime,
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024,
@@ -199,7 +200,9 @@ static esp_err_t status_handler(httpd_req_t *req) {
         brightness,
         openai_get_api_key(),
         openclaw_get_endpoint(),
-        openclaw_get_token()
+        openclaw_get_token(),
+        conversation_get_sd_info(),
+        conversation_get_count()
     );
     
     httpd_resp_set_type(req, "application/json");
@@ -744,9 +747,17 @@ static esp_err_t play_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Clear conversation history
+static esp_err_t clear_conversation_handler(httpd_req_t *req) {
+    conversation_clear();
+    httpd_resp_send(req, "Conversation cleared", 20);
+    return ESP_OK;
+}
+
 void web_admin_register(httpd_handle_t server) {
     httpd_uri_t admin = { .uri = "/admin", .method = HTTP_GET, .handler = admin_handler };
     httpd_uri_t status = { .uri = "/api/status", .method = HTTP_GET, .handler = status_handler };
+    httpd_uri_t clear_conv = { .uri = "/api/conversation/clear", .method = HTTP_GET, .handler = clear_conversation_handler };
     httpd_uri_t brightness = { .uri = "/api/brightness", .method = HTTP_GET, .handler = brightness_handler };
     httpd_uri_t clear = { .uri = "/api/clear-wifi", .method = HTTP_GET, .handler = clear_wifi_handler };
     httpd_uri_t screenshot = { .uri = "/api/screenshot", .method = HTTP_GET, .handler = screenshot_handler };
@@ -769,6 +780,7 @@ void web_admin_register(httpd_handle_t server) {
     Serial.printf("Admin: /api/status registered: %d\n", err);
     err = httpd_register_uri_handler(server, &brightness);
     err = httpd_register_uri_handler(server, &clear);
+    err = httpd_register_uri_handler(server, &clear_conv);
     err = httpd_register_uri_handler(server, &screenshot);
     err = httpd_register_uri_handler(server, &audio_start);
     err = httpd_register_uri_handler(server, &audio_stop);

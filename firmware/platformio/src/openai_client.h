@@ -44,4 +44,8 @@ const char* openclaw_get_token();  // Returns masked version
 // Returns response text (caller must free) or NULL on error
 char* openclaw_send_message(const char* message);
 
+// Send message with full conversation history
+// Uses conversation.h for context
+char* openclaw_send_with_history(const char* message);
+
 #endif // OPENAI_CLIENT_H
