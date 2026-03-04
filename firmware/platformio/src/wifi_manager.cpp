@@ -118,6 +118,26 @@ static esp_err_t scan_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// URL decode helper
+static String url_decode(const char* str) {
+    String result;
+    char hex[3] = {0};
+    while (*str) {
+        if (*str == '%' && str[1] && str[2]) {
+            hex[0] = str[1];
+            hex[1] = str[2];
+            result += (char)strtol(hex, NULL, 16);
+            str += 3;
+        } else if (*str == '+') {
+            result += ' ';
+            str++;
+        } else {
+            result += *str++;
+        }
+    }
+    return result;
+}
+
 static esp_err_t connect_handler(httpd_req_t *req) {
     char query[256] = {0};
     char ssid[64] = {0};
@@ -129,17 +149,15 @@ static esp_err_t connect_handler(httpd_req_t *req) {
     }
     
     // URL decode
-    String ssid_str = ssid;
-    String pass_str = pass;
-    ssid_str.replace("%20", " ");
-    pass_str.replace("%20", " ");
+    String ssid_str = url_decode(ssid);
+    String pass_str = url_decode(pass);
     
     if (ssid_str.length() == 0) {
         httpd_resp_send(req, "Error: SSID required", -1);
         return ESP_OK;
     }
     
-    Serial.printf("WiFi: Connecting to: %s\n", ssid_str.c_str());
+    Serial.printf("WiFi: Connecting to: %s (pass len: %d)\n", ssid_str.c_str(), pass_str.length());
     
     // Save credentials
     preferences.putString(PREF_SSID, ssid_str);
