@@ -91,11 +91,19 @@ void status_ring_update() {
     
     // Throttle updates to ~30fps
     static unsigned long last_update = 0;
-    if (millis() - last_update < 33) return;
-    last_update = millis();
+    unsigned long now = millis();
+    if (now - last_update < 33) return;
+    last_update = now;
     
     animation_phase += 0.15f;
     if (animation_phase > 2 * M_PI) animation_phase -= 2 * M_PI;
+    
+    // Debug every second
+    static unsigned long last_debug = 0;
+    if (now - last_debug > 1000) {
+        Serial.printf("Status ring: state=%d phase=%.2f\n", current_state, animation_phase);
+        last_debug = now;
+    }
     
     switch (current_state) {
         case STATE_RECORDING: {
@@ -108,6 +116,7 @@ void status_ring_update() {
             float pulse = (sinf(animation_phase * 3) + 1.0f) / 2.0f;
             int width = 6 + (int)(pulse * 4) + (int)(factor * 8);
             lv_obj_set_style_arc_width(ring, width, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(ring, width, LV_PART_MAIN);  // Both parts
             
             // Fill arc over 10 seconds
             unsigned long elapsed = millis() - start_time;
@@ -121,6 +130,7 @@ void status_ring_update() {
             float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;
             int width = 5 + (int)(pulse * 10);
             lv_obj_set_style_arc_width(ring, width, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(ring, width, LV_PART_MAIN);  // Both parts
             
             // Rotate for spinning effect
             int rotation = (int)(animation_phase * 50) % 360;
@@ -135,6 +145,7 @@ void status_ring_update() {
             
             int width = 6 + (int)(bounce * 6);
             lv_obj_set_style_arc_width(ring, width, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(ring, width, LV_PART_MAIN);  // Both parts
             
             // Subtle rotation wiggle
             int wiggle_rot = (int)(wiggle * 8);
