@@ -67,6 +67,21 @@ uint16_t last_touch_y = 0;
 bool was_touched = false;
 bool ui_initialized = false;
 
+// Recording visualization
+lv_obj_t* recording_container = NULL;
+lv_obj_t* ring_inner = NULL;
+lv_obj_t* ring_middle = NULL;
+lv_obj_t* ring_outer = NULL;
+lv_obj_t* duration_arc = NULL;
+lv_obj_t* rec_label = NULL;
+unsigned long recording_start_time = 0;
+bool recording_ui_visible = false;
+
+// Colors for recording UI
+#define COLOR_REC_RING     lv_color_hex(0xE74C3C)  // Red for recording
+#define COLOR_REC_DIM      lv_color_hex(0x5C1F1A)  // Dim red
+#define COLOR_REC_ARC      lv_color_hex(0x3498DB)  // Blue duration arc
+
 // Encoder state
 static knob_handle_t knob_handle = NULL;
 volatile bool knob_left_flag = false;
@@ -90,6 +105,9 @@ void set_brightness_value(int value) {
 
 // Forward declarations
 void update_selection();
+void show_recording_ui();
+void hide_recording_ui();
+void update_recording_ui();
 
 // Encoder callbacks
 static void knob_left_cb(void *arg, void *data) {
@@ -126,6 +144,137 @@ int get_touched_wedge(int x, int y) {
     int wedge = (int)(angle / 45.0) % 8;
     
     return wedge;
+}
+
+// Create recording UI (hidden by default)
+void create_recording_ui() {
+    lv_obj_t* screen = lv_scr_act();
+    
+    // Container for all recording elements
+    recording_container = lv_obj_create(screen);
+    lv_obj_set_size(recording_container, 130, 130);
+    lv_obj_center(recording_container);
+    lv_obj_set_style_radius(recording_container, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(recording_container, COLOR_CENTER, 0);
+    lv_obj_set_style_border_width(recording_container, 0, 0);
+    lv_obj_set_style_pad_all(recording_container, 0, 0);
+    lv_obj_clear_flag(recording_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
+    
+    // Duration arc (outer ring showing time progress)
+    duration_arc = lv_arc_create(recording_container);
+    lv_obj_set_size(duration_arc, 120, 120);
+    lv_obj_center(duration_arc);
+    lv_arc_set_rotation(duration_arc, 270);
+    lv_arc_set_bg_angles(duration_arc, 0, 360);
+    lv_arc_set_range(duration_arc, 0, 100);
+    lv_arc_set_value(duration_arc, 0);
+    lv_obj_set_style_arc_color(duration_arc, COLOR_REC_DIM, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(duration_arc, COLOR_REC_ARC, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(duration_arc, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(duration_arc, 6, LV_PART_INDICATOR);
+    lv_obj_remove_style(duration_arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(duration_arc, LV_OBJ_FLAG_CLICKABLE);
+    
+    // Inner pulsing ring
+    ring_inner = lv_obj_create(recording_container);
+    lv_obj_set_size(ring_inner, 40, 40);
+    lv_obj_center(ring_inner);
+    lv_obj_set_style_radius(ring_inner, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ring_inner, COLOR_REC_RING, 0);
+    lv_obj_set_style_bg_opa(ring_inner, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(ring_inner, 0, 0);
+    
+    // Middle pulsing ring
+    ring_middle = lv_obj_create(recording_container);
+    lv_obj_set_size(ring_middle, 65, 65);
+    lv_obj_center(ring_middle);
+    lv_obj_set_style_radius(ring_middle, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(ring_middle, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(ring_middle, COLOR_REC_RING, 0);
+    lv_obj_set_style_border_width(ring_middle, 3, 0);
+    lv_obj_set_style_border_opa(ring_middle, LV_OPA_60, 0);
+    
+    // Outer pulsing ring  
+    ring_outer = lv_obj_create(recording_container);
+    lv_obj_set_size(ring_outer, 90, 90);
+    lv_obj_center(ring_outer);
+    lv_obj_set_style_radius(ring_outer, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(ring_outer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(ring_outer, COLOR_REC_RING, 0);
+    lv_obj_set_style_border_width(ring_outer, 2, 0);
+    lv_obj_set_style_border_opa(ring_outer, LV_OPA_40, 0);
+    
+    // "REC" label
+    rec_label = lv_label_create(recording_container);
+    lv_label_set_text(rec_label, "REC");
+    lv_obj_set_style_text_color(rec_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(rec_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(rec_label);
+}
+
+void show_recording_ui() {
+    if (!recording_container) return;
+    
+    recording_start_time = millis();
+    recording_ui_visible = true;
+    
+    // Hide normal center content
+    lv_obj_add_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
+    
+    // Show recording UI
+    lv_obj_clear_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
+    lv_arc_set_value(duration_arc, 0);
+    
+    // Reset ring sizes
+    lv_obj_set_size(ring_inner, 40, 40);
+    lv_obj_set_size(ring_middle, 65, 65);
+    lv_obj_set_size(ring_outer, 90, 90);
+}
+
+void hide_recording_ui() {
+    if (!recording_container) return;
+    
+    recording_ui_visible = false;
+    
+    // Hide recording UI
+    lv_obj_add_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
+    
+    // Show normal center content
+    lv_obj_clear_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+void update_recording_ui() {
+    if (!recording_ui_visible || !recording_container) return;
+    
+    // Get audio level (0-100)
+    uint8_t level = audio_get_level();
+    
+    // Update duration arc (10 seconds = 100%)
+    unsigned long elapsed = millis() - recording_start_time;
+    int progress = (elapsed * 100) / 10000;  // 10 sec max
+    if (progress > 100) progress = 100;
+    lv_arc_set_value(duration_arc, progress);
+    
+    // Pulse rings based on audio level
+    // Inner ring: scales 30-50 based on level
+    int inner_size = 30 + (level * 20 / 100);
+    lv_obj_set_size(ring_inner, inner_size, inner_size);
+    lv_obj_center(ring_inner);
+    
+    // Middle ring: scales 50-75 based on level
+    int middle_size = 50 + (level * 25 / 100);
+    lv_obj_set_size(ring_middle, middle_size, middle_size);
+    lv_obj_center(ring_middle);
+    
+    // Outer ring: scales 70-100 based on level
+    int outer_size = 70 + (level * 30 / 100);
+    lv_obj_set_size(ring_outer, outer_size, outer_size);
+    lv_obj_center(ring_outer);
+    
+    // Adjust opacity based on level for more visual feedback
+    lv_opa_t inner_opa = LV_OPA_50 + (level * (LV_OPA_100 - LV_OPA_50) / 100);
+    lv_obj_set_style_bg_opa(ring_inner, inner_opa, 0);
 }
 
 void create_radial_ui() {
@@ -209,6 +358,9 @@ void create_radial_ui() {
     lv_obj_center(center_icon);
     
     ui_initialized = true;
+    
+    // Create recording visualization (hidden initially)
+    create_recording_ui();
     
     // Apply initial selection
     update_selection();
@@ -298,11 +450,13 @@ void check_touch() {
                     size_t audio_size = 0;
                     const uint8_t* audio_data = audio_stop_recording(&audio_size);
                     Serial.printf("Audio captured: %u bytes\n", audio_size);
+                    hide_recording_ui();
                     // TODO: Send to OpenClaw for transcription
                 } else {
                     // Start recording
                     if (audio_start_recording()) {
                         Serial.println("Recording started - touch center again to stop");
+                        show_recording_ui();
                     }
                 }
             }
@@ -402,5 +556,6 @@ void loop() {
     check_touch();
     check_encoder();
     wifi_manager_loop();
+    update_recording_ui();  // Update pulsing rings if recording
     delay(10);
 }
