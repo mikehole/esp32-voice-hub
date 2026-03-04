@@ -70,16 +70,7 @@ uint16_t last_touch_y = 0;
 bool was_touched = false;
 bool ui_initialized = false;
 
-// Status ring visualization (around avatar)
-lv_obj_t* status_ring = NULL;
-unsigned long recording_start_time = 0;
-float status_animation_phase = 0;
 
-// Colors for status ring
-#define COLOR_RECORDING    lv_color_hex(0xE74C3C)  // Red for recording
-#define COLOR_THINKING     lv_color_hex(0xF39C12)  // Orange for thinking
-#define COLOR_SPEAKING     lv_color_hex(0x2ECC71)  // Green for speaking
-#define COLOR_REC_ARC      lv_color_hex(0x3498DB)  // Blue duration arc
 
 // Encoder state
 static knob_handle_t knob_handle = NULL;
@@ -104,19 +95,7 @@ void set_brightness_value(int value) {
 
 // Forward declarations
 void update_selection();
-void show_status_ring(ProcessingState state);
-void hide_status_ring();
-void update_status_ring();
 void process_voice_command(const uint8_t* audio_data, size_t audio_size);
-
-// Processing states
-enum ProcessingState {
-    STATE_IDLE,
-    STATE_RECORDING,
-    STATE_THINKING,
-    STATE_SPEAKING
-};
-static ProcessingState current_state = STATE_IDLE;
 
 // Encoder callbacks
 static void knob_left_cb(void *arg, void *data) {
@@ -153,217 +132,6 @@ int get_touched_wedge(int x, int y) {
     int wedge = (int)(angle / 45.0) % 8;
     
     return wedge;
-}
-
-// Create recording UI (hidden by default)
-void create_recording_ui() {
-    lv_obj_t* screen = lv_scr_act();
-    
-    // Container for all recording elements
-    recording_container = lv_obj_create(screen);
-    lv_obj_set_size(recording_container, 130, 130);
-    lv_obj_center(recording_container);
-    lv_obj_set_style_radius(recording_container, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(recording_container, COLOR_CENTER, 0);
-    lv_obj_set_style_border_width(recording_container, 0, 0);
-    lv_obj_set_style_pad_all(recording_container, 0, 0);
-    lv_obj_clear_flag(recording_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
-    
-    // Duration arc (outer ring showing time progress)
-    duration_arc = lv_arc_create(recording_container);
-    lv_obj_set_size(duration_arc, 120, 120);
-    lv_obj_center(duration_arc);
-    lv_arc_set_rotation(duration_arc, 270);
-    lv_arc_set_bg_angles(duration_arc, 0, 360);
-    lv_arc_set_range(duration_arc, 0, 100);
-    lv_arc_set_value(duration_arc, 0);
-    lv_obj_set_style_arc_color(duration_arc, COLOR_REC_DIM, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(duration_arc, COLOR_REC_ARC, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(duration_arc, 6, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(duration_arc, 6, LV_PART_INDICATOR);
-    lv_obj_remove_style(duration_arc, NULL, LV_PART_KNOB);
-    lv_obj_clear_flag(duration_arc, LV_OBJ_FLAG_CLICKABLE);
-    
-    // Inner pulsing ring (fixed size, opacity changes)
-    ring_inner = lv_obj_create(recording_container);
-    lv_obj_set_size(ring_inner, 35, 35);
-    lv_obj_center(ring_inner);
-    lv_obj_set_style_radius(ring_inner, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(ring_inner, COLOR_REC_RING, 0);
-    lv_obj_set_style_bg_opa(ring_inner, LV_OPA_80, 0);
-    lv_obj_set_style_border_width(ring_inner, 0, 0);
-    lv_obj_clear_flag(ring_inner, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // Middle pulsing ring (fixed size, border width changes)
-    ring_middle = lv_obj_create(recording_container);
-    lv_obj_set_size(ring_middle, 65, 65);
-    lv_obj_center(ring_middle);
-    lv_obj_set_style_radius(ring_middle, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(ring_middle, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(ring_middle, COLOR_REC_RING, 0);
-    lv_obj_set_style_border_width(ring_middle, 2, 0);
-    lv_obj_set_style_border_opa(ring_middle, LV_OPA_60, 0);
-    lv_obj_clear_flag(ring_middle, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // Outer pulsing ring (fixed size, border width changes)
-    ring_outer = lv_obj_create(recording_container);
-    lv_obj_set_size(ring_outer, 95, 95);
-    lv_obj_center(ring_outer);
-    lv_obj_set_style_radius(ring_outer, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(ring_outer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(ring_outer, COLOR_REC_RING, 0);
-    lv_obj_set_style_border_width(ring_outer, 2, 0);
-    lv_obj_set_style_border_opa(ring_outer, LV_OPA_40, 0);
-    lv_obj_clear_flag(ring_outer, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // "REC" label
-    rec_label = lv_label_create(recording_container);
-    lv_label_set_text(rec_label, "REC");
-    lv_obj_set_style_text_color(rec_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(rec_label, &lv_font_montserrat_14, 0);
-    lv_obj_center(rec_label);
-}
-
-// Processing states
-enum ProcessingState {
-    STATE_IDLE,
-    STATE_RECORDING,
-    STATE_THINKING,
-    STATE_SPEAKING
-};
-static ProcessingState current_state = STATE_IDLE;
-static lv_obj_t* state_label = NULL;
-
-void show_recording_ui() {
-    if (!recording_container) return;
-    
-    recording_start_time = millis();
-    recording_ui_visible = true;
-    current_state = STATE_RECORDING;
-    
-    // Hide normal center content
-    lv_obj_add_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
-    
-    // Show recording UI
-    lv_obj_clear_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
-    lv_arc_set_value(duration_arc, 0);
-    
-    // Reset ring sizes
-    lv_obj_set_size(ring_inner, 40, 40);
-    lv_obj_set_size(ring_middle, 65, 65);
-    lv_obj_set_size(ring_outer, 90, 90);
-    
-    // Update label
-    if (rec_label) {
-        lv_label_set_text(rec_label, LV_SYMBOL_AUDIO " REC");
-        lv_obj_set_style_text_color(rec_label, lv_color_hex(0xFF5555), 0);
-    }
-}
-
-void show_thinking_ui() {
-    if (!recording_container) return;
-    
-    current_state = STATE_THINKING;
-    recording_ui_visible = true;
-    
-    // Keep recording container visible but change appearance
-    lv_obj_clear_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
-    
-    // Hide the pulsing rings
-    if (ring_inner) lv_obj_add_flag(ring_inner, LV_OBJ_FLAG_HIDDEN);
-    if (ring_middle) lv_obj_add_flag(ring_middle, LV_OBJ_FLAG_HIDDEN);
-    if (ring_outer) lv_obj_add_flag(ring_outer, LV_OBJ_FLAG_HIDDEN);
-    if (duration_arc) lv_obj_add_flag(duration_arc, LV_OBJ_FLAG_HIDDEN);
-    
-    // Show thinking indicator
-    if (rec_label) {
-        lv_label_set_text(rec_label, LV_SYMBOL_REFRESH " Thinking...");
-        lv_obj_set_style_text_color(rec_label, lv_color_hex(0xFFAA00), 0);
-    }
-}
-
-void show_speaking_ui() {
-    if (!recording_container) return;
-    
-    current_state = STATE_SPEAKING;
-    
-    // Show speaking indicator
-    if (rec_label) {
-        lv_label_set_text(rec_label, LV_SYMBOL_VOLUME_MAX " Speaking");
-        lv_obj_set_style_text_color(rec_label, lv_color_hex(0x55FF55), 0);
-    }
-}
-
-void hide_recording_ui() {
-    if (!recording_container) return;
-    
-    recording_ui_visible = false;
-    current_state = STATE_IDLE;
-    
-    // Hide recording UI
-    lv_obj_add_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
-    
-    // Show rings again for next time
-    if (ring_inner) lv_obj_clear_flag(ring_inner, LV_OBJ_FLAG_HIDDEN);
-    if (ring_middle) lv_obj_clear_flag(ring_middle, LV_OBJ_FLAG_HIDDEN);
-    if (ring_outer) lv_obj_clear_flag(ring_outer, LV_OBJ_FLAG_HIDDEN);
-    if (duration_arc) lv_obj_clear_flag(duration_arc, LV_OBJ_FLAG_HIDDEN);
-    
-    // Show normal center content
-    lv_obj_clear_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
-}
-
-void update_recording_ui() {
-    if (!recording_ui_visible) return;
-    
-    // Safety checks for all objects
-    if (!recording_container || !duration_arc || !ring_inner || !ring_middle || !ring_outer) {
-        return;
-    }
-    
-    // Throttle updates to avoid overwhelming LVGL (every 50ms)
-    static unsigned long last_update = 0;
-    if (millis() - last_update < 50) return;
-    last_update = millis();
-    
-    // Get audio level (0-100)
-    uint8_t level = audio_get_level();
-    
-    // Debug: print level every 500ms
-    static unsigned long last_debug = 0;
-    if (millis() - last_debug > 500) {
-        Serial.printf("Audio level: %d\n", level);
-        last_debug = millis();
-    }
-    
-    // Update duration arc (10 seconds = 100%)
-    unsigned long elapsed = millis() - recording_start_time;
-    int progress = (elapsed * 100) / 10000;  // 10 sec max
-    if (progress > 100) progress = 100;
-    lv_arc_set_value(duration_arc, progress);
-    
-    // Amplify level for more visible effect (levels are typically 8-20)
-    // Map 0-25 input to 0-100 visual range
-    int amplified = min(100, level * 4);
-    
-    // Pulse rings using opacity and border width (no resizing = no relayout)
-    // Inner ring: opacity pulses with level (20% to 100%)
-    lv_opa_t inner_opa = LV_OPA_20 + (amplified * (LV_OPA_100 - LV_OPA_20) / 100);
-    lv_obj_set_style_bg_opa(ring_inner, inner_opa, 0);
-    
-    // Middle ring: border width 2-12 based on level, high opacity range
-    int middle_border = 2 + (amplified * 10 / 100);
-    lv_obj_set_style_border_width(ring_middle, middle_border, 0);
-    lv_opa_t middle_opa = LV_OPA_20 + (amplified * (LV_OPA_100 - LV_OPA_20) / 100);
-    lv_obj_set_style_border_opa(ring_middle, middle_opa, 0);
-    
-    // Outer ring: border width 1-10 based on level
-    int outer_border = 1 + (amplified * 9 / 100);
-    lv_obj_set_style_border_width(ring_outer, outer_border, 0);
-    lv_opa_t outer_opa = LV_OPA_10 + (amplified * (LV_OPA_90 - LV_OPA_10) / 100);
-    lv_obj_set_style_border_opa(ring_outer, outer_opa, 0);
 }
 
 void create_radial_ui() {
@@ -447,9 +215,6 @@ void create_radial_ui() {
     lv_obj_center(center_icon);
     
     ui_initialized = true;
-    
-    // Create recording visualization (hidden initially)
-    create_recording_ui();
     
     // Apply initial selection
     update_selection();
@@ -591,7 +356,6 @@ void check_touch() {
             Serial.println("Center touch DOWN - start recording");
             if (audio_start_recording()) {
                 status_ring_show(STATE_RECORDING);
-                recording_start_time = millis();
             }
             was_touched = touched;
             return;
