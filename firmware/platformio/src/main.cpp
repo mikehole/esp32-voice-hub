@@ -206,12 +206,26 @@ void create_radial_ui() {
     }
 }
 
+// Flag to prevent re-entrant UI rebuilds
+static volatile bool ui_rebuilding = false;
+
 void rebuild_ui() {
+    // Prevent re-entrant calls that crash PSRAM allocator
+    if (ui_rebuilding) {
+        return;
+    }
+    ui_rebuilding = true;
+    
     // Clear all children from screen
     lv_obj_clean(lv_scr_act());
     
+    // Let LVGL process the deletion
+    lv_timer_handler();
+    
     // Rebuild the UI with new selection
     create_radial_ui();
+    
+    ui_rebuilding = false;
 }
 
 void check_touch() {
@@ -276,25 +290,27 @@ void setup() {
 
 void check_encoder() {
     static unsigned long last_encoder_time = 0;
-    const unsigned long DEBOUNCE_MS = 50;  // Debounce rapid spins
+    const unsigned long DEBOUNCE_MS = 150;  // Increased debounce for stability
     
-    if (millis() - last_encoder_time < DEBOUNCE_MS) {
-        // Clear flags but ignore rapid inputs
+    // Skip if UI is rebuilding or debounce active
+    if (ui_rebuilding || (millis() - last_encoder_time < DEBOUNCE_MS)) {
+        // Clear flags silently
         knob_left_flag = false;
         knob_right_flag = false;
         return;
     }
     
-    if (knob_left_flag) {
-        knob_left_flag = false;
-        knob_right_flag = false;  // Clear both to avoid double-processing
+    bool left = knob_left_flag;
+    bool right = knob_right_flag;
+    knob_left_flag = false;
+    knob_right_flag = false;
+    
+    if (left && !right) {
         selected_wedge = (selected_wedge + 7) % 8;  // Decrement with wrap
         Serial.printf("Encoder LEFT - Selected: %s\n", wedge_labels[selected_wedge]);
         rebuild_ui();
         last_encoder_time = millis();
-    } else if (knob_right_flag) {
-        knob_right_flag = false;
-        knob_left_flag = false;  // Clear both
+    } else if (right && !left) {
         selected_wedge = (selected_wedge + 1) % 8;  // Increment with wrap
         Serial.printf("Encoder RIGHT - Selected: %s\n", wedge_labels[selected_wedge]);
         rebuild_ui();
