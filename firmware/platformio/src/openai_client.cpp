@@ -179,11 +179,11 @@ uint8_t* openai_tts(const char* text, size_t* out_size) {
     
     Serial.println("OpenAI TTS: Waiting for response...");
     
-    // Wait for response headers
+    // Wait for response headers - update UI frequently
     unsigned long start = millis();
     while (!client.available() && millis() - start < 30000) {
-        update_ui();  // Keep UI animating
-        delay(10);
+        update_ui();  // Keep UI animating (~30fps)
+        delay(5);     // Short delay for smooth animation
     }
     
     if (!client.available()) {
@@ -398,11 +398,11 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     
     Serial.println("OpenAI: Waiting for response...");
     
-    // Read response
+    // Wait for response - update UI frequently for animation
     unsigned long start = millis();
     while (!client.available() && millis() - start < 30000) {
-        update_ui();  // Keep UI animating
-        delay(50);
+        update_ui();  // Keep UI animating (~30fps)
+        delay(5);     // Short delay, let UI update often
     }
     
     if (!client.available()) {
@@ -624,11 +624,11 @@ char* openclaw_send_message(const char* message) {
     
     Serial.println("OpenClaw: Waiting for response...");
     
-    // Wait for response
+    // Wait for response - update UI frequently for animation
     unsigned long start = millis();
     while (!client.available() && millis() - start < 60000) {
-        update_ui();  // Keep UI animating
-        delay(50);
+        update_ui();  // Keep UI animating (~30fps)
+        delay(5);     // Short delay, let UI update often
     }
     
     if (!client.available()) {
