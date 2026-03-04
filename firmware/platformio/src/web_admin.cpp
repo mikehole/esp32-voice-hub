@@ -385,12 +385,18 @@ static esp_err_t audio_download_handler(httpd_req_t *req) {
 
 // OpenAI API key save
 static esp_err_t openai_key_handler(httpd_req_t *req) {
-    char query[256] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        char key[128] = {0};
-        if (httpd_query_key_value(query, "k", key, sizeof(key)) == ESP_OK) {
+    char query[512] = {0};  // Larger buffer for encoded key
+    esp_err_t err = httpd_req_get_url_query_str(req, query, sizeof(query));
+    Serial.printf("OpenAI key handler: query err=%d, query='%s'\n", err, query);
+    
+    if (err == ESP_OK && strlen(query) > 0) {
+        char key[256] = {0};  // Larger buffer
+        err = httpd_query_key_value(query, "k", key, sizeof(key));
+        Serial.printf("OpenAI key parse: err=%d, key='%s'\n", err, key);
+        
+        if (err == ESP_OK && strlen(key) > 0) {
             // URL decode the key
-            char decoded[128] = {0};
+            char decoded[256] = {0};
             int j = 0;
             for (int i = 0; key[i] && j < (int)sizeof(decoded) - 1; i++) {
                 if (key[i] == '%' && key[i+1] && key[i+2]) {
@@ -403,6 +409,7 @@ static esp_err_t openai_key_handler(httpd_req_t *req) {
                     decoded[j++] = key[i];
                 }
             }
+            Serial.printf("OpenAI key decoded: '%s'\n", decoded);
             openai_set_api_key(decoded);
             char resp[64];
             snprintf(resp, sizeof(resp), "API Key saved: %s", openai_get_api_key());
