@@ -7,6 +7,7 @@
 #include <math.h>
 
 // Colors
+#define COLOR_CONNECTING   lv_color_hex(0x3498DB)  // Blue for connecting
 #define COLOR_RECORDING    lv_color_hex(0xE74C3C)  // Red
 #define COLOR_THINKING     lv_color_hex(0xF39C12)  // Orange  
 #define COLOR_SPEAKING     lv_color_hex(0x2ECC71)  // Green
@@ -67,6 +68,9 @@ void status_ring_show(ProcessingState state) {
     // Set color based on state
     lv_color_t color;
     switch (state) {
+        case STATE_CONNECTING:
+            color = COLOR_CONNECTING;
+            break;
         case STATE_RECORDING:
             color = COLOR_RECORDING;
             lv_arc_set_value(ring, 0);  // Start empty, fill over time
@@ -112,6 +116,19 @@ void status_ring_update() {
     if (animation_phase > 2 * M_PI) animation_phase -= 2 * M_PI;
     
     switch (current_state) {
+        case STATE_CONNECTING: {
+            // Spinning arc segment (like a loading spinner)
+            int arc_pos = ((int)(animation_phase * 40)) % 360;
+            lv_arc_set_value(ring, 60);  // 60 degree arc segment
+            lv_arc_set_rotation(ring, 270 + arc_pos);
+            
+            // Gentle pulse
+            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;
+            int opa = 180 + (int)(pulse * 75);
+            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
+            break;
+        }
+        
         case STATE_RECORDING: {
             // Fill arc over 10 seconds (this works!)
             unsigned long elapsed = now - start_time;

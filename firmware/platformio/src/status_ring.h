@@ -11,6 +11,7 @@
 // Processing states
 enum ProcessingState {
     STATE_IDLE,
+    STATE_CONNECTING,  // WiFi connecting - blocks interaction
     STATE_RECORDING,
     STATE_THINKING,
     STATE_SPEAKING

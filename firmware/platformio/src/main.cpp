@@ -450,6 +450,13 @@ void setup() {
     // Initialize status ring (after UI is created)
     status_ring_init(lv_scr_act());
     
+    // Show connecting indicator if not connected yet
+    WiFiState wifi_state = wifi_manager_get_state();
+    if (wifi_state != WIFI_STATE_CONNECTED) {
+        status_ring_show(STATE_CONNECTING);
+        Serial.println("Waiting for WiFi connection...");
+    }
+    
     Serial.println("Setup complete! Touch or rotate to select.");
 }
 
@@ -483,8 +490,33 @@ void check_encoder() {
 
 void loop() {
     lv_timer_handler();
-    check_touch();
-    check_encoder();
+    
+    // Check WiFi state and update connecting indicator
+    static WiFiState last_wifi_state = WIFI_STATE_IDLE;
+    WiFiState wifi_state = wifi_manager_get_state();
+    
+    if (wifi_state != last_wifi_state) {
+        if (wifi_state == WIFI_STATE_CONNECTED) {
+            // Just connected - hide connecting indicator
+            if (status_ring_get_state() == STATE_CONNECTING) {
+                status_ring_hide();
+                Serial.println("WiFi connected - ready!");
+            }
+        } else if (wifi_state == WIFI_STATE_CONNECTING && last_wifi_state == WIFI_STATE_CONNECTED) {
+            // Lost connection - show reconnecting
+            status_ring_show(STATE_CONNECTING);
+            Serial.println("WiFi reconnecting...");
+        }
+        last_wifi_state = wifi_state;
+    }
+    
+    // Only allow touch/encoder when connected (or connecting indicator not shown)
+    ProcessingState ring_state = status_ring_get_state();
+    if (ring_state != STATE_CONNECTING) {
+        check_touch();
+        check_encoder();
+    }
+    
     wifi_manager_loop();
     status_ring_update();  // Update animated status ring
     delay(10);
