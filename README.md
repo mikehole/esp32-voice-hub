@@ -16,6 +16,8 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 - 🌐 **Web admin panel** — configure WiFi, API keys, test audio
 - 🔊 **Audio output** — onboard speaker + 3.5mm DAC
 
+> ⚠️ **Current Status:** Only the **Minerva** (voice assistant) wedge is functional. Other wedges (Music, Weather, Home, etc.) are UI placeholders for future development.
+
 ## 🎭 Avatar States
 
 Minerva (the assistant) has expressive avatar states that change based on what she's doing:
