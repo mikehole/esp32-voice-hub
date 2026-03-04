@@ -156,18 +156,13 @@ void status_ring_update() {
         }
         
         case STATE_THINKING: {
-            // Spinning arc segment (not full circle)
-            // Use angles directly for spinning effect
-            int arc_start = ((int)(animation_phase * 30)) % 360;
-            int arc_end = (arc_start + 90) % 360;  // 90 degree segment
+            // Full circle with breathing/pulsing effect
+            lv_arc_set_value(ring, 360);
+            lv_arc_set_rotation(ring, 270);
             
-            // Set as indicator angles
-            lv_arc_set_value(ring, 90);  // 90 degree arc
-            lv_arc_set_rotation(ring, 270 + arc_start);  // Rotate the whole arc
-            
-            // Pulse opacity
-            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;
-            int opa = 150 + (int)(pulse * 105);
+            // Smooth breathing pulse on opacity (more dramatic range)
+            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;  // 0-1
+            int opa = 80 + (int)(pulse * 175);  // 80-255 range
             lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
             break;
         }
