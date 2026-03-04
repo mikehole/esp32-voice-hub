@@ -17,6 +17,9 @@ enum ProcessingState {
     STATE_SPEAKING
 };
 
+// Number of concentric rings for pulse effect
+#define STATUS_RING_COUNT 3
+
 // Initialize the status ring (call after UI is created)
 void status_ring_init(lv_obj_t* parent);
 

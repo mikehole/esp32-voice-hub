@@ -1,5 +1,5 @@
 /**
- * Status Ring - Animated ring around avatar for visual feedback
+ * Status Ring - Animated concentric rings around avatar for visual feedback
  */
 
 #include "status_ring.h"
@@ -13,11 +13,15 @@
 #define COLOR_SPEAKING     lv_color_hex(0x2ECC71)  // Green
 #define COLOR_RING_BG      lv_color_hex(0x1A1A1A)  // Dark background
 
-// Ring object
-static lv_obj_t* ring = NULL;
+// Ring objects - multiple concentric rings
+static lv_obj_t* rings[STATUS_RING_COUNT] = {NULL, NULL, NULL};
 static ProcessingState current_state = STATE_IDLE;
 static float animation_phase = 0;
 static unsigned long start_time = 0;
+
+// Ring sizes (inner to outer)
+static const int ring_sizes[STATUS_RING_COUNT] = {145, 160, 175};
+static const int ring_widths[STATUS_RING_COUNT] = {8, 6, 4};
 
 void status_ring_init(lv_obj_t* parent) {
     if (!parent) {
@@ -25,40 +29,50 @@ void status_ring_init(lv_obj_t* parent) {
         return;
     }
     
-    // Create arc that surrounds the avatar
-    ring = lv_arc_create(parent);
-    if (!ring) {
-        Serial.println("Status ring: ERROR - failed to create arc!");
-        return;
+    // Create concentric arcs (outer to inner so inner draws on top)
+    for (int i = STATUS_RING_COUNT - 1; i >= 0; i--) {
+        rings[i] = lv_arc_create(parent);
+        if (!rings[i]) {
+            Serial.printf("Status ring: ERROR - failed to create ring %d!\n", i);
+            return;
+        }
+        
+        lv_obj_set_size(rings[i], ring_sizes[i], ring_sizes[i]);
+        lv_obj_center(rings[i]);
+        
+        // Configure arc appearance
+        lv_arc_set_rotation(rings[i], 270);
+        lv_arc_set_bg_angles(rings[i], 0, 360);
+        lv_arc_set_range(rings[i], 0, 360);
+        lv_arc_set_value(rings[i], 360);
+        
+        // Style
+        lv_obj_set_style_arc_width(rings[i], ring_widths[i], LV_PART_MAIN);
+        lv_obj_set_style_arc_width(rings[i], ring_widths[i], LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(rings[i], COLOR_RING_BG, LV_PART_MAIN);
+        lv_obj_set_style_arc_color(rings[i], COLOR_RECORDING, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(rings[i], true, LV_PART_INDICATOR);
+        lv_obj_remove_style(rings[i], NULL, LV_PART_KNOB);
+        lv_obj_clear_flag(rings[i], LV_OBJ_FLAG_CLICKABLE);
+        
+        // Hidden by default
+        lv_obj_add_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
     }
-    Serial.println("Status ring: initialized");
-    lv_obj_set_size(ring, 155, 155);  // Larger than 130px avatar
-    lv_obj_center(ring);
     
-    // Configure arc appearance
-    lv_arc_set_rotation(ring, 270);  // Start from top
-    lv_arc_set_bg_angles(ring, 0, 360);
-    lv_arc_set_range(ring, 0, 360);
-    lv_arc_set_value(ring, 360);
-    
-    // Style - fixed width, we'll animate other properties
-    lv_obj_set_style_arc_width(ring, 10, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ring, 10, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(ring, COLOR_RING_BG, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(ring, COLOR_RECORDING, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_rounded(ring, true, LV_PART_INDICATOR);
-    lv_obj_remove_style(ring, NULL, LV_PART_KNOB);
-    lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
-    
-    // Hidden by default
-    lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+    Serial.println("Status ring: initialized (3 concentric rings)");
 }
 
 void status_ring_show(ProcessingState state) {
-    if (!ring || !lv_obj_is_valid(ring)) {
-        Serial.println("Status ring: WARNING - ring not valid, cannot show");
-        return;
+    if (!rings[0]) return;
+    
+    // Validate all rings
+    for (int i = 0; i < STATUS_RING_COUNT; i++) {
+        if (!rings[i] || !lv_obj_is_valid(rings[i])) {
+            Serial.println("Status ring: WARNING - ring not valid, cannot show");
+            return;
+        }
     }
+    
     Serial.printf("Status ring: showing state %d\n", state);
     
     current_state = state;
@@ -73,7 +87,6 @@ void status_ring_show(ProcessingState state) {
             break;
         case STATE_RECORDING:
             color = COLOR_RECORDING;
-            lv_arc_set_value(ring, 0);  // Start empty, fill over time
             break;
         case STATE_THINKING:
             color = COLOR_THINKING;
@@ -86,33 +99,42 @@ void status_ring_show(ProcessingState state) {
             break;
     }
     
-    lv_obj_set_style_arc_color(ring, color, LV_PART_INDICATOR);
-    lv_arc_set_rotation(ring, 270);
-    lv_arc_set_bg_angles(ring, 0, 360);
-    
-    lv_obj_clear_flag(ring, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ring);
+    // Apply color and show all rings
+    for (int i = 0; i < STATUS_RING_COUNT; i++) {
+        lv_obj_set_style_arc_color(rings[i], color, LV_PART_INDICATOR);
+        lv_arc_set_rotation(rings[i], 270);
+        lv_arc_set_value(rings[i], 360);
+        lv_obj_set_style_arc_opa(rings[i], 255, LV_PART_INDICATOR);
+        lv_obj_clear_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(rings[i]);
+    }
 }
 
 void status_ring_hide() {
-    if (!ring) return;
-    
     current_state = STATE_IDLE;
-    lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+    
+    for (int i = 0; i < STATUS_RING_COUNT; i++) {
+        if (rings[i]) {
+            lv_obj_add_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 void status_ring_update() {
-    // Safety: bail early if not active or ring doesn't exist
     if (current_state == STATE_IDLE) return;
-    if (!ring) {
-        Serial.println("Status ring: ring is NULL!");
-        return;
-    }
-    if (!lv_obj_is_valid(ring)) {
-        Serial.println("Status ring: ring object INVALID!");
-        ring = NULL;  // Prevent further access
-        current_state = STATE_IDLE;
-        return;
+    
+    // Validate rings
+    for (int i = 0; i < STATUS_RING_COUNT; i++) {
+        if (!rings[i]) {
+            Serial.println("Status ring: ring is NULL!");
+            return;
+        }
+        if (!lv_obj_is_valid(rings[i])) {
+            Serial.println("Status ring: ring object INVALID!");
+            for (int j = 0; j < STATUS_RING_COUNT; j++) rings[j] = NULL;
+            current_state = STATE_IDLE;
+            return;
+        }
     }
     
     // Throttle updates to ~30fps
@@ -126,59 +148,76 @@ void status_ring_update() {
     
     switch (current_state) {
         case STATE_CONNECTING: {
-            // Spinning arc segment (like a loading spinner)
-            int arc_pos = ((int)(animation_phase * 40)) % 360;
-            lv_arc_set_value(ring, 60);  // 60 degree arc segment
-            lv_arc_set_rotation(ring, 270 + arc_pos);
-            
-            // Gentle pulse
-            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;
-            int opa = 180 + (int)(pulse * 75);
-            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
+            // Spinning effect - each ring offset
+            for (int i = 0; i < STATUS_RING_COUNT; i++) {
+                int arc_pos = ((int)(animation_phase * 40) + i * 30) % 360;
+                lv_arc_set_value(rings[i], 60 + i * 20);  // Different arc lengths
+                lv_arc_set_rotation(rings[i], 270 + arc_pos);
+                
+                // Staggered opacity
+                float pulse = (sinf(animation_phase * 2 + i * 0.5f) + 1.0f) / 2.0f;
+                int opa = 150 + (int)(pulse * 105);
+                lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
+            }
             break;
         }
         
         case STATE_RECORDING: {
-            // Fill arc over 10 seconds (this works!)
+            // Inner ring fills over time, outer rings pulse with audio
             unsigned long elapsed = now - start_time;
             int angle = min(360UL, elapsed * 360 / 10000);
-            lv_arc_set_value(ring, angle);
+            lv_arc_set_value(rings[0], angle);  // Inner ring = progress
             
-            // Pulse opacity based on audio level
+            // Outer rings pulse with audio level
             uint8_t level = audio_get_level();
             float factor = level / 100.0f * 4.0f;
             if (factor > 1.0f) factor = 1.0f;
-            float pulse = (sinf(animation_phase * 3) + 1.0f) / 2.0f;
-            int opa = 180 + (int)(pulse * 50) + (int)(factor * 25);
-            if (opa > 255) opa = 255;
-            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
+            
+            for (int i = 0; i < STATUS_RING_COUNT; i++) {
+                float phase_offset = i * 0.7f;  // Stagger the pulses
+                float pulse = (sinf(animation_phase * 3 + phase_offset) + 1.0f) / 2.0f;
+                int opa = 100 + (int)(pulse * 80) + (int)(factor * 75);
+                if (opa > 255) opa = 255;
+                lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
+                
+                // Outer rings show full circle
+                if (i > 0) {
+                    lv_arc_set_value(rings[i], 360);
+                }
+            }
             break;
         }
         
         case STATE_THINKING: {
-            // Full circle with breathing/pulsing effect
-            lv_arc_set_value(ring, 360);
-            lv_arc_set_rotation(ring, 270);
-            
-            // Smooth breathing pulse on opacity (more dramatic range)
-            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;  // 0-1
-            int opa = 80 + (int)(pulse * 175);  // 80-255 range
-            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
+            // All rings pulse together, breathing effect
+            for (int i = 0; i < STATUS_RING_COUNT; i++) {
+                lv_arc_set_value(rings[i], 360);
+                lv_arc_set_rotation(rings[i], 270);
+                
+                // Staggered breathing - outer rings lag behind inner
+                float phase_offset = i * 0.4f;
+                float pulse = (sinf(animation_phase * 2 - phase_offset) + 1.0f) / 2.0f;
+                int opa = 60 + (int)(pulse * 195);  // 60-255 range
+                lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
+            }
             break;
         }
         
         case STATE_SPEAKING: {
-            // Full circle with wiggling opacity
-            lv_arc_set_value(ring, 360);
-            
-            // Fast wiggle on opacity
-            float wiggle = sinf(animation_phase * 8);
-            int opa = 200 + (int)(wiggle * 55);
-            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
-            
-            // Subtle position wiggle via rotation
-            int rot_wiggle = (int)(sinf(animation_phase * 6) * 5);
-            lv_arc_set_rotation(ring, 270 + rot_wiggle);
+            // Ripple outward effect - rings pulse in sequence
+            for (int i = 0; i < STATUS_RING_COUNT; i++) {
+                lv_arc_set_value(rings[i], 360);
+                
+                // Each ring pulses at different phase (ripple outward)
+                float phase_offset = i * 1.2f;  // Larger offset = more obvious ripple
+                float pulse = (sinf(animation_phase * 4 - phase_offset) + 1.0f) / 2.0f;
+                int opa = 80 + (int)(pulse * 175);
+                lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
+                
+                // Subtle rotation wiggle
+                int wiggle = (int)(sinf(animation_phase * 6 - phase_offset) * 3);
+                lv_arc_set_rotation(rings[i], 270 + wiggle);
+            }
             break;
         }
         
