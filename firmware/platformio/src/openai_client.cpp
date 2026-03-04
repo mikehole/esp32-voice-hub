@@ -143,11 +143,19 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     Serial.println("OpenAI: Sending request...");
     
     // We need to use the lower-level API for streaming upload
-    if (!client.connect("api.openai.com", 443)) {
-        strcpy(last_error, "Connection failed");
+    Serial.println("OpenAI: Connecting to api.openai.com:443...");
+    int retries = 3;
+    while (retries > 0 && !client.connect("api.openai.com", 443)) {
+        Serial.printf("OpenAI: Connection attempt failed, %d retries left\n", retries - 1);
+        retries--;
+        delay(1000);
+    }
+    if (!client.connected()) {
+        strcpy(last_error, "Connection failed after retries");
         http.end();
         return NULL;
     }
+    Serial.println("OpenAI: Connected!");
     
     // Send headers manually
     client.print("POST /v1/audio/transcriptions HTTP/1.1\r\n");
