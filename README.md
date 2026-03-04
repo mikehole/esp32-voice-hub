@@ -169,12 +169,22 @@ API calls run on Core 0 (FreeRTOS task) so UI stays responsive. Avatar images sw
 
 Via web admin panel (`http://<device-ip>/admin`) or NVS storage:
 
+<p align="center">
+  <img src="assets/admin-panel.png" alt="Minerva Admin Panel" width="300"/>
+</p>
+
 | Setting | Description |
 |---------|-------------|
 | WiFi SSID/Password | Network credentials |
 | OpenAI API Key | For Whisper transcription + TTS |
 | OpenClaw Endpoint | e.g., `https://your-server.com` |
 | OpenClaw Token | Gateway authentication token |
+
+The admin panel also shows:
+- System status (IP, uptime, heap, PSRAM, WiFi signal)
+- Display brightness control with live preview
+- Audio recording test tools
+- API connectivity testing
 
 ## 📝 License
 
