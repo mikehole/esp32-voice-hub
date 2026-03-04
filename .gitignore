@@ -33,3 +33,9 @@ secrets.py
 config.local.py
 *.env
 reference/
+
+# Avatar generation temp files
+avatar-poses/*.json
+avatar-poses/*.html
+avatar-poses/thinking/*.json
+avatar-poses/thinking/*.html
