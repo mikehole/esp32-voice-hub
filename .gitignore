@@ -32,3 +32,4 @@ dist/
 secrets.py
 config.local.py
 *.env
+reference/

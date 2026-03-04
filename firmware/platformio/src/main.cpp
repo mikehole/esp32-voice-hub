@@ -14,6 +14,7 @@
 #include "bidi_switch_knob.h"
 #include "wifi_manager.h"
 #include "web_admin.h"
+#include "audio_capture.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -271,6 +272,14 @@ void rebuild_ui() {
     update_selection();
 }
 
+// Check if touch is in center circle
+bool is_center_touch(uint16_t x, uint16_t y) {
+    int dx = x - CENTER_X;
+    int dy = y - CENTER_Y;
+    int dist_sq = dx * dx + dy * dy;
+    return dist_sq < (65 * 65);  // ~65px radius for center circle
+}
+
 void check_touch() {
     uint16_t x, y;
     uint8_t touched = getTouch(&x, &y);
@@ -279,13 +288,35 @@ void check_touch() {
         // New touch detected
         Serial.printf("Touch at: %d, %d\n", x, y);
         
+        // Check if center touched (for Minerva recording)
+        if (is_center_touch(x, y)) {
+            Serial.println("Center touched!");
+            
+            if (selected_wedge == 0) {  // Minerva selected
+                if (audio_is_recording()) {
+                    // Stop recording
+                    size_t audio_size = 0;
+                    const uint8_t* audio_data = audio_stop_recording(&audio_size);
+                    Serial.printf("Audio captured: %u bytes\n", audio_size);
+                    // TODO: Send to OpenClaw for transcription
+                } else {
+                    // Start recording
+                    if (audio_start_recording()) {
+                        Serial.println("Recording started - touch center again to stop");
+                    }
+                }
+            }
+            was_touched = touched;
+            return;
+        }
+        
         int wedge = get_touched_wedge(x, y);
         Serial.printf("Wedge: %d\n", wedge);
         
         if (wedge >= 0 && wedge != selected_wedge) {
             selected_wedge = wedge;
             Serial.printf("Selected: %s\n", wedge_labels[selected_wedge]);
-            rebuild_ui();
+            update_selection();
         }
     }
     
@@ -325,6 +356,13 @@ void setup() {
     
     // Set up brightness callbacks for web admin
     web_admin_set_brightness_callbacks(get_brightness, set_brightness_value);
+    
+    // Initialize audio
+    if (audio_init()) {
+        Serial.println("Audio: Ready");
+    } else {
+        Serial.println("Audio: Init failed!");
+    }
     
     create_radial_ui();
     
