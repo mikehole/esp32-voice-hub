@@ -171,7 +171,7 @@ void status_ring_update() {
             float audio_factor = level / 100.0f * 4.0f;
             if (audio_factor > 1.0f) audio_factor = 1.0f;
             
-            // Progress shown via inner ring arc length
+            // Progress shown on OUTER ring (visible when finger covers center)
             unsigned long elapsed = now - start_time;
             int progress_angle = min(360UL, elapsed * 360 / 10000);
             
@@ -182,8 +182,8 @@ void status_ring_update() {
                 int arc_length = base_arc + audio_arc;
                 if (arc_length > 360) arc_length = 360;
                 
-                // Inner ring also shows progress
-                if (i == 0) {
+                // OUTER ring (i==2) shows progress - visible past finger!
+                if (i == STATUS_RING_COUNT - 1) {
                     arc_length = max(arc_length, progress_angle);
                 }
                 
