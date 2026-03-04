@@ -381,8 +381,9 @@ void check_voice_processing() {
     if (!voice_processing) return;
     
     if (voice_stage == 4) {
-        // TTS ready - play it
+        // TTS ready - play it with speaking animation!
         avatar_set_state(STATE_SPEAKING);
+        status_ring_show(STATE_SPEAKING);  // Green pulsing ring
         lv_task_handler();
         Serial.printf("Playing TTS: %u bytes\n", tts_result_size);
         audio_play(tts_result, tts_result_size, 24000);
@@ -391,12 +392,14 @@ void check_voice_processing() {
         tts_result_size = 0;
         voice_stage = 0;
         voice_processing = false;
+        status_ring_hide();
         avatar_set_state(STATE_IDLE);  // Return to idle
     } else if (voice_stage == -1) {
         // Error occurred
         Serial.println("Voice processing failed");
         voice_stage = 0;
         voice_processing = false;
+        status_ring_hide();
         avatar_set_state(STATE_IDLE);  // Return to idle
     }
     // Stages 1-3: still processing, avatar shows thinking
