@@ -8,6 +8,7 @@
 #define WIFI_MANAGER_H
 
 #include <Arduino.h>
+#include "esp_http_server.h"
 
 // WiFi states
 enum WiFiState {
@@ -41,5 +42,6 @@ bool wifi_manager_has_credentials();
 
 // Clear saved credentials
 void wifi_manager_clear_credentials();
+httpd_handle_t wifi_manager_get_server();
 
 #endif // WIFI_MANAGER_H

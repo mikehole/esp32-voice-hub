@@ -13,6 +13,7 @@
 #include "images/minerva_img.h"
 #include "bidi_switch_knob.h"
 #include "wifi_manager.h"
+#include "web_admin.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -65,6 +66,22 @@ bool was_touched = false;
 static knob_handle_t knob_handle = NULL;
 volatile bool knob_left_flag = false;
 volatile bool knob_right_flag = false;
+
+// Brightness state
+static int current_brightness = 100;
+
+// Brightness callbacks for web admin
+int get_brightness() {
+    return current_brightness;
+}
+
+void set_brightness_value(int value) {
+    current_brightness = value;
+    // Map 0-100 to 0-255 for PWM
+    uint16_t duty = (value * 255) / 100;
+    setUpdutySubdivide(duty);
+    Serial.printf("Brightness set to %d%% (duty: %d)\n", value, duty);
+}
 
 // Encoder callbacks
 static void knob_left_cb(void *arg, void *data) {
@@ -248,6 +265,9 @@ void setup() {
     // Initialize WiFi manager
     wifi_manager_init();
     Serial.printf("WiFi: %s\n", wifi_manager_get_status());
+    
+    // Set up brightness callbacks for web admin
+    web_admin_set_brightness_callbacks(get_brightness, set_brightness_value);
     
     create_radial_ui();
     

@@ -104,6 +104,9 @@
 #define LV_USE_TILEVIEW 0
 #define LV_USE_WIN 0
 
+/* Snapshot for screenshots */
+#define LV_USE_SNAPSHOT 1
+
 /* OS/Tick - use our own tick via lv_tick_inc() */
 #define LV_TICK_CUSTOM 0
 

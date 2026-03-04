@@ -24,6 +24,7 @@ extern "C" int lwip_hook_ip6_input(struct pbuf *p, struct netif *inp) {
 
 // Simple HTTP server instead of AsyncWebServer
 #include "esp_http_server.h"
+#include "web_admin.h"
 
 // AP Configuration
 #define AP_SSID "Minerva-Setup"
@@ -214,6 +215,11 @@ static void start_webserver() {
         httpd_register_uri_handler(server_handle, &root);
         httpd_register_uri_handler(server_handle, &scan);
         httpd_register_uri_handler(server_handle, &conn);
+        
+        // Register admin endpoints
+        web_admin_register(server_handle);
+        
+        // Wildcard redirect must be last
         httpd_register_uri_handler(server_handle, &redir);
         
         Serial.println("WiFi: Web server started");
@@ -340,4 +346,8 @@ void wifi_manager_clear_credentials() {
     preferences.remove(PREF_SSID);
     preferences.remove(PREF_PASS);
     Serial.println("WiFi: Credentials cleared");
+}
+
+httpd_handle_t wifi_manager_get_server() {
+    return server_handle;
 }
