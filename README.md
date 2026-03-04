@@ -55,6 +55,17 @@ Avatar images are embedded in firmware (~200KB for 7 images).
 | **Storage** | SD card slot (for conversation history) |
 | **MCU** | ESP32-S3R8 (8MB PSRAM, 16MB Flash) |
 
+### Additional Hardware
+
+| Item | Notes |
+|------|-------|
+| **External Speakers** | [USB Mini Speakers with 3.5mm jack](https://www.amazon.co.uk/dp/B0FWBCTH72) — USB powered, connects to DAC output |
+| **3D Printed Stand** | [`enclosure/stl/desk_hub_v2.stl`](enclosure/stl/desk_hub_v2.stl) — holds device + speaker |
+
+<p align="center">
+  <img src="enclosure/desk_hub_v2_render.png" alt="3D printed desk stand" width="400"/>
+</p>
+
 ## 🚀 Getting Started
 
 ### Prerequisites
