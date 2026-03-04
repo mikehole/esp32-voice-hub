@@ -199,12 +199,14 @@ The admin panel also shows:
 - [x] 3D printable desk stand
 
 ### Planned 🚧
-- [ ] **Bluetooth HID** — Send keyboard shortcuts for Zoom/Teams meetings (mute, camera, raise hand)
-- [ ] **Music wedge** — Spotify/media control
+- [ ] **Hierarchical menus** — Tap wedge to enter submenu, tap center to go back
+- [ ] **Bluetooth HID** — Device pairs with PC as a keyboard/media controller
+- [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand, screen share, leave (BT HID)
+- [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys). Encoder = volume knob!
 - [ ] **Weather wedge** — Current conditions & forecast
 - [ ] **Home wedge** — Home Assistant integration
 - [ ] **Timer wedge** — Countdown timers & alarms
-- [ ] **Themed avatars** — Unique Minerva for each wedge
+- [ ] **Themed avatars** — Unique Minerva for each wedge (some already generated!)
 
 ## 📝 License
 
