@@ -108,8 +108,11 @@ void set_brightness_value(int value) {
 // Forward declarations
 void update_selection();
 void show_recording_ui();
+void show_thinking_ui();
+void show_speaking_ui();
 void hide_recording_ui();
 void update_recording_ui();
+void process_voice_command(const uint8_t* audio_data, size_t audio_size);
 
 // Encoder callbacks
 static void knob_left_cb(void *arg, void *data) {
@@ -218,11 +221,22 @@ void create_recording_ui() {
     lv_obj_center(rec_label);
 }
 
+// Processing states
+enum ProcessingState {
+    STATE_IDLE,
+    STATE_RECORDING,
+    STATE_THINKING,
+    STATE_SPEAKING
+};
+static ProcessingState current_state = STATE_IDLE;
+static lv_obj_t* state_label = NULL;
+
 void show_recording_ui() {
     if (!recording_container) return;
     
     recording_start_time = millis();
     recording_ui_visible = true;
+    current_state = STATE_RECORDING;
     
     // Hide normal center content
     lv_obj_add_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
@@ -235,15 +249,63 @@ void show_recording_ui() {
     lv_obj_set_size(ring_inner, 40, 40);
     lv_obj_set_size(ring_middle, 65, 65);
     lv_obj_set_size(ring_outer, 90, 90);
+    
+    // Update label
+    if (rec_label) {
+        lv_label_set_text(rec_label, LV_SYMBOL_AUDIO " REC");
+        lv_obj_set_style_text_color(rec_label, lv_color_hex(0xFF5555), 0);
+    }
+}
+
+void show_thinking_ui() {
+    if (!recording_container) return;
+    
+    current_state = STATE_THINKING;
+    recording_ui_visible = true;
+    
+    // Keep recording container visible but change appearance
+    lv_obj_clear_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
+    
+    // Hide the pulsing rings
+    if (ring_inner) lv_obj_add_flag(ring_inner, LV_OBJ_FLAG_HIDDEN);
+    if (ring_middle) lv_obj_add_flag(ring_middle, LV_OBJ_FLAG_HIDDEN);
+    if (ring_outer) lv_obj_add_flag(ring_outer, LV_OBJ_FLAG_HIDDEN);
+    if (duration_arc) lv_obj_add_flag(duration_arc, LV_OBJ_FLAG_HIDDEN);
+    
+    // Show thinking indicator
+    if (rec_label) {
+        lv_label_set_text(rec_label, LV_SYMBOL_REFRESH " Thinking...");
+        lv_obj_set_style_text_color(rec_label, lv_color_hex(0xFFAA00), 0);
+    }
+}
+
+void show_speaking_ui() {
+    if (!recording_container) return;
+    
+    current_state = STATE_SPEAKING;
+    
+    // Show speaking indicator
+    if (rec_label) {
+        lv_label_set_text(rec_label, LV_SYMBOL_VOLUME_MAX " Speaking");
+        lv_obj_set_style_text_color(rec_label, lv_color_hex(0x55FF55), 0);
+    }
 }
 
 void hide_recording_ui() {
     if (!recording_container) return;
     
     recording_ui_visible = false;
+    current_state = STATE_IDLE;
     
     // Hide recording UI
     lv_obj_add_flag(recording_container, LV_OBJ_FLAG_HIDDEN);
+    
+    // Show rings again for next time
+    if (ring_inner) lv_obj_clear_flag(ring_inner, LV_OBJ_FLAG_HIDDEN);
+    if (ring_middle) lv_obj_clear_flag(ring_middle, LV_OBJ_FLAG_HIDDEN);
+    if (ring_outer) lv_obj_clear_flag(ring_outer, LV_OBJ_FLAG_HIDDEN);
+    if (duration_arc) lv_obj_clear_flag(duration_arc, LV_OBJ_FLAG_HIDDEN);
     
     // Show normal center content
     lv_obj_clear_flag(center_obj, LV_OBJ_FLAG_HIDDEN);
@@ -455,76 +517,98 @@ bool is_center_touch(uint16_t x, uint16_t y) {
     return dist_sq < (65 * 65);  // ~65px radius for center circle
 }
 
+// Process voice command after recording stops
+void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
+    if (audio_size < 1000) {
+        Serial.println("Recording too short, ignoring");
+        hide_recording_ui();
+        return;
+    }
+    
+    // Show thinking state
+    show_thinking_ui();
+    lv_task_handler();  // Update display
+    Serial.println("Processing voice command...");
+    
+    // Step 1: Transcribe with Whisper
+    char* transcript = openai_transcribe(audio_data, audio_size);
+    if (!transcript || strlen(transcript) == 0) {
+        Serial.printf("Transcription failed: %s\n", openai_get_last_error());
+        if (transcript) free(transcript);
+        hide_recording_ui();
+        return;
+    }
+    
+    Serial.printf("Transcript: '%s'\n", transcript);
+    
+    // Step 2: Send to OpenClaw with conversation history
+    char* response = openclaw_send_with_history(transcript);
+    free(transcript);
+    
+    if (!response || strlen(response) == 0) {
+        Serial.printf("OpenClaw failed: %s\n", openai_get_last_error());
+        hide_recording_ui();
+        return;
+    }
+    
+    Serial.printf("Response: '%s'\n", response);
+    
+    // Step 3: Convert response to speech
+    size_t tts_size = 0;
+    uint8_t* tts_audio = openai_tts(response, &tts_size);
+    free(response);
+    
+    if (!tts_audio) {
+        Serial.printf("TTS failed: %s\n", openai_get_last_error());
+        hide_recording_ui();
+        return;
+    }
+    
+    // Step 4: Show speaking state and play
+    show_speaking_ui();
+    lv_task_handler();  // Update display
+    Serial.printf("Playing TTS: %u bytes\n", tts_size);
+    audio_play(tts_audio, tts_size, 24000);
+    heap_caps_free(tts_audio);
+    
+    // Return to idle
+    hide_recording_ui();
+}
+
 void check_touch() {
     uint16_t x, y;
     uint8_t touched = getTouch(&x, &y);
     
-    if (touched && !was_touched) {
-        // New touch detected
-        Serial.printf("Touch at: %d, %d\n", x, y);
-        
-        // Check if center touched (for Minerva recording)
-        if (is_center_touch(x, y)) {
-            Serial.println("Center touched!");
-            
-            if (selected_wedge == 0) {  // Minerva selected
-                if (audio_is_recording()) {
-                    // Stop recording and process
-                    size_t audio_size = 0;
-                    const uint8_t* audio_data = audio_stop_recording(&audio_size);
-                    Serial.printf("Audio captured: %u bytes\n", audio_size);
-                    hide_recording_ui();
-                    
-                    if (audio_size > 1000) {  // At least some audio captured
-                        // Show "processing" state
-                        Serial.println("Processing voice command...");
-                        
-                        // Step 1: Transcribe with Whisper
-                        char* transcript = openai_transcribe(audio_data, audio_size);
-                        if (transcript && strlen(transcript) > 0) {
-                            Serial.printf("Transcript: '%s'\n", transcript);
-                            
-                            // Step 2: Send to OpenClaw with conversation history
-                            char* response = openclaw_send_with_history(transcript);
-                            free(transcript);
-                            
-                            if (response && strlen(response) > 0) {
-                                Serial.printf("Response: '%s'\n", response);
-                                
-                                // Step 3: Convert response to speech
-                                size_t tts_size = 0;
-                                uint8_t* tts_audio = openai_tts(response, &tts_size);
-                                free(response);
-                                
-                                if (tts_audio) {
-                                    // Step 4: Play the response
-                                    Serial.printf("Playing TTS: %u bytes\n", tts_size);
-                                    audio_play(tts_audio, tts_size, 24000);
-                                    heap_caps_free(tts_audio);
-                                } else {
-                                    Serial.printf("TTS failed: %s\n", openai_get_last_error());
-                                }
-                            } else {
-                                Serial.printf("OpenClaw failed: %s\n", openai_get_last_error());
-                            }
-                        } else {
-                            Serial.printf("Transcription failed: %s\n", openai_get_last_error());
-                            if (transcript) free(transcript);
-                        }
-                    } else {
-                        Serial.println("Recording too short, ignoring");
-                    }
-                } else {
-                    // Start recording
-                    if (audio_start_recording()) {
-                        Serial.println("Recording started - touch center again to stop");
-                        show_recording_ui();
-                    }
-                }
+    // Press-and-hold for recording when Minerva selected
+    if (selected_wedge == 0 && current_state != STATE_THINKING && current_state != STATE_SPEAKING) {
+        // Touch DOWN on center = start recording
+        if (touched && !was_touched && is_center_touch(x, y)) {
+            Serial.println("Center touch DOWN - start recording");
+            if (audio_start_recording()) {
+                show_recording_ui();
             }
             was_touched = touched;
             return;
         }
+        
+        // Touch UP while recording = stop and process
+        if (!touched && was_touched && audio_is_recording()) {
+            Serial.println("Touch UP - stop recording");
+            size_t audio_size = 0;
+            const uint8_t* audio_data = audio_stop_recording(&audio_size);
+            Serial.printf("Audio captured: %u bytes\n", audio_size);
+            
+            // Process in a non-blocking way (though currently blocks)
+            process_voice_command(audio_data, audio_size);
+            
+            was_touched = touched;
+            return;
+        }
+    }
+    
+    if (touched && !was_touched) {
+        // New touch detected (for wedge selection)
+        Serial.printf("Touch at: %d, %d\n", x, y);
         
         int wedge = get_touched_wedge(x, y);
         Serial.printf("Wedge: %d\n", wedge);
