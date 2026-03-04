@@ -19,9 +19,9 @@ static ProcessingState current_state = STATE_IDLE;
 static float animation_phase = 0;
 static unsigned long start_time = 0;
 
-// Ring sizes (inner to outer) - keep closer to avatar, away from wedges
-static const int ring_sizes[STATUS_RING_COUNT] = {140, 148, 156};
-static const int ring_widths[STATUS_RING_COUNT] = {5, 4, 3};
+// Ring sizes (inner to outer) - tighter spacing, no gaps
+static const int ring_sizes[STATUS_RING_COUNT] = {140, 146, 152};
+static const int ring_widths[STATUS_RING_COUNT] = {4, 4, 4};
 
 void status_ring_init(lv_obj_t* parent) {
     if (!parent) {
@@ -148,13 +148,16 @@ void status_ring_update() {
     
     switch (current_state) {
         case STATE_CONNECTING: {
-            // Spinning effect - each ring offset
+            // Smooth continuous spinning - use millis() for continuous rotation
+            unsigned long elapsed = now - start_time;
+            int base_rotation = (elapsed / 8) % 360;  // ~45 degrees per second
+            
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
-                int arc_pos = ((int)(animation_phase * 40) + i * 30) % 360;
-                lv_arc_set_value(rings[i], 60 + i * 20);  // Different arc lengths
+                int arc_pos = (base_rotation + i * 40) % 360;  // Offset each ring
+                lv_arc_set_value(rings[i], 60 + i * 15);  // Different arc lengths
                 lv_arc_set_rotation(rings[i], 270 + arc_pos);
                 
-                // Staggered opacity
+                // Staggered opacity pulse
                 float pulse = (sinf(animation_phase * 2 + i * 0.5f) + 1.0f) / 2.0f;
                 int opa = 150 + (int)(pulse * 105);
                 lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);

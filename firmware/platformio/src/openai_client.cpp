@@ -637,10 +637,11 @@ char* openclaw_send_message(const char* message) {
         return NULL;
     }
     
-    // Read response
+    // Read OpenClaw response
     String response = "";
     bool headersEnded = false;
     int httpCode = 0;
+    unsigned long lastUiUpdate = millis();
     while (client.available() || client.connected()) {
         if (client.available()) {
             String line = client.readStringUntil('\n');
@@ -654,12 +655,19 @@ char* openclaw_send_message(const char* message) {
             } else {
                 response += line;
             }
+        } else {
+            // No data available yet, keep UI animating
+            if (millis() - lastUiUpdate > 50) {
+                update_ui();
+                lastUiUpdate = millis();
+            }
+            delay(10);
         }
         if (!client.available() && millis() - start > 60000) break;
     }
     client.stop();
     
-    Serial.printf("OpenClaw: HTTP %d, Response: %s\n", httpCode, response.c_str());
+    Serial.printf("OpenClaw: HTTP %d\n", httpCode);
     
     if (httpCode != 200) {
         snprintf(last_error, sizeof(last_error), "HTTP %d: %s", httpCode, response.c_str());
