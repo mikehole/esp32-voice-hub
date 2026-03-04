@@ -166,27 +166,39 @@ void status_ring_update() {
         }
         
         case STATE_RECORDING: {
-            // Inner ring fills over time, outer rings pulse with audio
-            unsigned long elapsed = now - start_time;
-            int angle = min(360UL, elapsed * 360 / 10000);
-            lv_arc_set_value(rings[0], angle);  // Inner ring = progress
-            
-            // Outer rings pulse with audio level
+            // Voice-reactive rings! All rings respond to audio level
             uint8_t level = audio_get_level();
-            float factor = level / 100.0f * 4.0f;
-            if (factor > 1.0f) factor = 1.0f;
+            float audio_factor = level / 100.0f * 4.0f;
+            if (audio_factor > 1.0f) audio_factor = 1.0f;
+            
+            // Progress shown via inner ring arc length
+            unsigned long elapsed = now - start_time;
+            int progress_angle = min(360UL, elapsed * 360 / 10000);
             
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
-                float phase_offset = i * 0.7f;  // Stagger the pulses
-                float pulse = (sinf(animation_phase * 3 + phase_offset) + 1.0f) / 2.0f;
-                int opa = 100 + (int)(pulse * 80) + (int)(factor * 75);
+                // Arc length based on audio level - rings "expand" with voice
+                int base_arc = 120;  // Base arc size
+                int audio_arc = (int)(audio_factor * 180);  // Up to 180° more with loud audio
+                int arc_length = base_arc + audio_arc;
+                if (arc_length > 360) arc_length = 360;
+                
+                // Inner ring also shows progress
+                if (i == 0) {
+                    arc_length = max(arc_length, progress_angle);
+                }
+                
+                lv_arc_set_value(rings[i], arc_length);
+                
+                // Rotate rings outward with audio (ripple effect)
+                int base_rotation = (int)(animation_phase * 20) % 360;
+                int audio_offset = (int)(audio_factor * i * 30);  // More offset when loud
+                lv_arc_set_rotation(rings[i], 270 + base_rotation + i * 15 + audio_offset);
+                
+                // Opacity pulses with audio - brighter when louder
+                float pulse = (sinf(animation_phase * 4 + i * 0.5f) + 1.0f) / 2.0f;
+                int opa = 120 + (int)(pulse * 60) + (int)(audio_factor * 75);
                 if (opa > 255) opa = 255;
                 lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
-                
-                // Outer rings show full circle
-                if (i > 0) {
-                    lv_arc_set_value(rings[i], 360);
-                }
             }
             break;
         }
