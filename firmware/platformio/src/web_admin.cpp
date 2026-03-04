@@ -119,7 +119,7 @@ static const char ADMIN_HTML[] PROGMEM =
 "function saveKey(){"
 "var k=document.getElementById('apikey').value;"
 "if(!k){alert('Enter API key');return;}"
-"fetch('/api/openai/key?k='+encodeURIComponent(k)).then(r=>r.text()).then(t=>{"
+"fetch('/api/openai/key',{method:'POST',headers:{'Content-Type':'text/plain'},body:k}).then(r=>r.text()).then(t=>{"
 "document.getElementById('openai').innerText=t;"
 "document.getElementById('apikey').value='';"
 "});"
@@ -383,41 +383,37 @@ static esp_err_t audio_download_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// OpenAI API key save
+// OpenAI API key save (POST body)
 static esp_err_t openai_key_handler(httpd_req_t *req) {
-    char query[512] = {0};  // Larger buffer for encoded key
-    esp_err_t err = httpd_req_get_url_query_str(req, query, sizeof(query));
-    Serial.printf("OpenAI key handler: query err=%d, query='%s'\n", err, query);
+    char key[256] = {0};
     
-    if (err == ESP_OK && strlen(query) > 0) {
-        char key[256] = {0};  // Larger buffer
-        err = httpd_query_key_value(query, "k", key, sizeof(key));
-        Serial.printf("OpenAI key parse: err=%d, key='%s'\n", err, key);
-        
-        if (err == ESP_OK && strlen(key) > 0) {
-            // URL decode the key
-            char decoded[256] = {0};
-            int j = 0;
-            for (int i = 0; key[i] && j < (int)sizeof(decoded) - 1; i++) {
-                if (key[i] == '%' && key[i+1] && key[i+2]) {
-                    char hex[3] = {key[i+1], key[i+2], 0};
-                    decoded[j++] = (char)strtol(hex, NULL, 16);
-                    i += 2;
-                } else if (key[i] == '+') {
-                    decoded[j++] = ' ';
-                } else {
-                    decoded[j++] = key[i];
-                }
-            }
-            Serial.printf("OpenAI key decoded: '%s'\n", decoded);
-            openai_set_api_key(decoded);
-            char resp[64];
-            snprintf(resp, sizeof(resp), "API Key saved: %s", openai_get_api_key());
-            httpd_resp_send(req, resp, strlen(resp));
-            return ESP_OK;
-        }
+    int content_len = req->content_len;
+    if (content_len <= 0 || content_len >= (int)sizeof(key)) {
+        Serial.printf("OpenAI key: invalid content_len=%d\n", content_len);
+        httpd_resp_send(req, "Invalid key length", 18);
+        return ESP_OK;
     }
-    httpd_resp_send(req, "Missing key parameter", 21);
+    
+    int received = httpd_req_recv(req, key, content_len);
+    if (received != content_len) {
+        Serial.printf("OpenAI key: recv failed, got %d of %d\n", received, content_len);
+        httpd_resp_send(req, "Failed to receive key", 21);
+        return ESP_OK;
+    }
+    key[received] = '\0';
+    
+    Serial.printf("OpenAI key received: len=%d, key='%.20s...'\n", received, key);
+    
+    // Basic validation
+    if (strncmp(key, "sk-", 3) != 0) {
+        httpd_resp_send(req, "Invalid key format (must start with sk-)", 40);
+        return ESP_OK;
+    }
+    
+    openai_set_api_key(key);
+    char resp[64];
+    snprintf(resp, sizeof(resp), "API Key saved: %s", openai_get_api_key());
+    httpd_resp_send(req, resp, strlen(resp));
     return ESP_OK;
 }
 
@@ -457,7 +453,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t audio_start = { .uri = "/api/audio/start", .method = HTTP_GET, .handler = audio_start_handler };
     httpd_uri_t audio_stop = { .uri = "/api/audio/stop", .method = HTTP_GET, .handler = audio_stop_handler };
     httpd_uri_t audio_download = { .uri = "/api/audio/download", .method = HTTP_GET, .handler = audio_download_handler };
-    httpd_uri_t openai_key = { .uri = "/api/openai/key", .method = HTTP_GET, .handler = openai_key_handler };
+    httpd_uri_t openai_key = { .uri = "/api/openai/key", .method = HTTP_POST, .handler = openai_key_handler };
     httpd_uri_t openai_transcribe = { .uri = "/api/openai/transcribe", .method = HTTP_GET, .handler = openai_transcribe_handler };
     
     esp_err_t err;
