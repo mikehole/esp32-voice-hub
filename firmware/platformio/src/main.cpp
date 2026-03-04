@@ -367,7 +367,8 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     tts_result = NULL;
     tts_result_size = 0;
     
-    // Show thinking avatar (no ring - avoids LVGL crash during background task)
+    // Hide recording ring, show thinking avatar
+    status_ring_hide();
     avatar_set_state(STATE_THINKING);
     Serial.println("Processing voice command in background...");
     
