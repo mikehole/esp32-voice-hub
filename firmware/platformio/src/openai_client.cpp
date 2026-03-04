@@ -186,18 +186,25 @@ uint8_t* openai_tts(const char* text, size_t* out_size) {
     // Read headers
     int httpCode = 0;
     int contentLength = 0;
+    bool chunked = false;
     while (client.available()) {
         String line = client.readStringUntil('\n');
+        line.trim();
         if (line.startsWith("HTTP/1.1")) {
             httpCode = line.substring(9, 12).toInt();
         }
         if (line.startsWith("content-length:") || line.startsWith("Content-Length:")) {
             contentLength = line.substring(16).toInt();
         }
-        if (line == "\r") break;
+        if (line.indexOf("chunked") >= 0) {
+            chunked = true;
+        }
+        if (line.length() == 0) break;  // Empty line = end of headers
     }
     
-    Serial.printf("OpenAI TTS: HTTP %d, Content-Length: %d\n", httpCode, contentLength);
+    Serial.printf("OpenAI TTS: HTTP %d, Content-Length: %d, Chunked: %d\n", httpCode, contentLength, chunked);
+    
+
     
     if (httpCode != 200) {
         String error = client.readString();
@@ -218,18 +225,53 @@ uint8_t* openai_tts(const char* text, size_t* out_size) {
         return NULL;
     }
     
-    // Read audio data
+    // Read audio data (handle chunked encoding if present)
     size_t totalRead = 0;
-    while ((client.available() || client.connected()) && totalRead < bufferSize) {
-        if (client.available()) {
-            int toRead = min((size_t)4096, bufferSize - totalRead);
-            int bytesRead = client.read(audioBuffer + totalRead, toRead);
-            if (bytesRead > 0) {
-                totalRead += bytesRead;
+    
+    if (chunked) {
+        // Chunked transfer encoding: read chunk size, then chunk data, repeat
+        while (client.connected() && totalRead < bufferSize) {
+            // Read chunk size line
+            String chunkLine = client.readStringUntil('\n');
+            chunkLine.trim();
+            if (chunkLine.length() == 0) continue;
+            
+            size_t chunkSize = strtoul(chunkLine.c_str(), NULL, 16);
+            if (chunkSize == 0) break;  // Final chunk
+            
+            // Read chunk data
+            size_t chunkRead = 0;
+            while (chunkRead < chunkSize && totalRead < bufferSize) {
+                if (client.available()) {
+                    int toRead = min((size_t)4096, min(chunkSize - chunkRead, bufferSize - totalRead));
+                    int bytesRead = client.read(audioBuffer + totalRead, toRead);
+                    if (bytesRead > 0) {
+                        totalRead += bytesRead;
+                        chunkRead += bytesRead;
+                    }
+                }
+                if (millis() - start > 60000) break;
+                yield();
             }
+            
+            // Read trailing \r\n after chunk data
+            client.readStringUntil('\n');
+            
+            if (millis() - start > 60000) break;
         }
-        if (millis() - start > 60000) break;  // 60 second total timeout
-        yield();
+    } else {
+        // Content-Length mode: just read all data
+        while ((client.available() || client.connected()) && totalRead < bufferSize) {
+            if (client.available()) {
+                int toRead = min((size_t)4096, bufferSize - totalRead);
+                int bytesRead = client.read(audioBuffer + totalRead, toRead);
+                if (bytesRead > 0) {
+                    totalRead += bytesRead;
+                }
+            }
+            if (millis() - start > 60000) break;  // 60 second total timeout
+            yield();
+        }
     }
     
     client.stop();
