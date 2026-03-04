@@ -87,7 +87,7 @@ static bool init_dac_output() {
     
     i2s_std_config_t tx_std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = AUDIO_I2S_BCLK_PIN,
@@ -290,12 +290,9 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     while (sample_idx < total_mono_samples && playing) {
         // Fill stereo buffer with volume-adjusted samples
-        // Note: OpenAI PCM is little-endian, I2S MSB expects big-endian
         size_t samples_to_process = min((size_t)256, total_mono_samples - sample_idx);
         for (size_t i = 0; i < samples_to_process; i++) {
             int16_t sample = (int16_t)(mono_samples[sample_idx + i] * volume);
-            // Byte-swap for MSB format (little-endian to big-endian)
-            sample = (sample >> 8) | (sample << 8);
             stereo_buf[i * 2] = sample;      // Left
             stereo_buf[i * 2 + 1] = sample;  // Right
         }
