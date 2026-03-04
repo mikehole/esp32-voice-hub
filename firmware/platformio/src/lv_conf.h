@@ -18,11 +18,12 @@
 #define LV_USE_LOG 0
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
 
-/* Memory settings - use PSRAM */
-#define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE (256 * 1024)  /* 256KB for LVGL */
-#define LV_MEM_ADR 0
-#define LV_MEM_AUTO_DEFRAG 1
+/* Memory settings - use PSRAM for LVGL heap */
+#define LV_MEM_CUSTOM 1
+#define LV_MEM_CUSTOM_INCLUDE <esp_heap_caps.h>
+#define LV_MEM_CUSTOM_ALLOC(size) heap_caps_malloc(size, MALLOC_CAP_SPIRAM)
+#define LV_MEM_CUSTOM_FREE(p) heap_caps_free(p)
+#define LV_MEM_CUSTOM_REALLOC(p, size) heap_caps_realloc(p, size, MALLOC_CAP_SPIRAM)
 
 /* Display settings */
 #define LV_HOR_RES_MAX 360

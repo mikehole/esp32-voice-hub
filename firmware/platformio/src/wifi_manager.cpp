@@ -13,6 +13,14 @@
 #include "esp_netif.h"
 #include "lwip/inet.h"
 #include "lwip/dns.h"
+#include "lwip/ip6.h"
+#include "lwip/netif.h"
+
+// IPv6 hook required by ESP-IDF lwip build
+extern "C" int lwip_hook_ip6_input(struct pbuf *p, struct netif *inp) {
+    // Return 0 to continue processing, 1 to drop
+    return 0;
+}
 
 // Simple HTTP server instead of AsyncWebServer
 #include "esp_http_server.h"
