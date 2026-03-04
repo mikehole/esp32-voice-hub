@@ -331,7 +331,7 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     i2s_channel_disable(tx_chan);
     playing = false;
     
-    Serial.printf("Audio: Playback complete (%u bytes)\n", offset);
+    Serial.printf("Audio: Playback complete (%u samples)\n", sample_idx);
     return true;
 }
 
