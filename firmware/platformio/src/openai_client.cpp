@@ -398,7 +398,7 @@ char* openclaw_send_message(const char* message) {
         return NULL;
     }
     
-    // Build JSON body
+    // Build JSON body (no sessionKey - uses default session)
     String body = "{\"message\":\"";
     // Escape the message for JSON
     for (size_t i = 0; i < strlen(message); i++) {
@@ -409,7 +409,7 @@ char* openclaw_send_message(const char* message) {
         else if (c == '\r') body += "\\r";
         else body += c;
     }
-    body += "\",\"sessionKey\":\"voice-hub\"}";
+    body += "\"}";
     
     // Send HTTP request
     client.print("POST /hooks/agent HTTP/1.1\r\n");
