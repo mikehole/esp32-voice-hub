@@ -553,7 +553,11 @@ void check_encoder() {
 void check_voice_processing();
 
 void loop() {
-    lv_timer_handler();
+    // IMPORTANT: Don't run lv_timer_handler while background task is active
+    // LVGL is not thread-safe and crashes even with mutexes
+    if (!voice_processing) {
+        lv_timer_handler();
+    }
     
     // Check voice processing status (background task)
     check_voice_processing();
@@ -593,15 +597,11 @@ void loop() {
     }
     
     wifi_manager_loop();
-    status_ring_update();  // Update animated status ring
     
-    // Debug: confirm main loop is running during background processing
-    if (voice_processing) {
-        static unsigned long last_loop_debug = 0;
-        if (millis() - last_loop_debug > 500) {
-            Serial.printf("Main loop running (stage=%d)\n", voice_stage);
-            last_loop_debug = millis();
-        }
+    // Only update status ring when NOT doing background processing
+    // LVGL is not thread-safe - even mutexes don't fully protect it
+    if (!voice_processing) {
+        status_ring_update();
     }
     
     delay(10);
