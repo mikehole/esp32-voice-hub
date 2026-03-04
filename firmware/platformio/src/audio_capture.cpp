@@ -136,13 +136,24 @@ static void recording_task(void* arg) {
         if (err == ESP_OK && bytes_read > 0) {
             // Calculate audio level for visualization
             int32_t sum = 0;
+            int16_t max_sample = 0;
             int16_t* samples = read_buf;
             size_t sample_count = bytes_read / sizeof(int16_t);
             for (size_t i = 0; i < sample_count; i++) {
-                sum += abs(samples[i]);
+                int16_t s = abs(samples[i]);
+                sum += s;
+                if (s > max_sample) max_sample = s;
             }
             int32_t avg = sum / sample_count;
-            current_audio_level = (uint8_t)min(100L, avg / 200);  // Scale to 0-100
+            // Use peak level, scaled to 0-100 (32767 max for 16-bit)
+            current_audio_level = (uint8_t)min(100, (max_sample * 100) / 16000);
+            
+            // Debug every ~1 second
+            static uint32_t last_level_debug = 0;
+            if (millis() - last_level_debug > 1000) {
+                Serial.printf("Audio: avg=%d max=%d level=%d\n", avg, max_sample, current_audio_level);
+                last_level_debug = millis();
+            }
             
             // Copy to record buffer
             size_t to_copy = min(bytes_read, record_buffer_size - record_position);

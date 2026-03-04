@@ -250,6 +250,13 @@ void update_recording_ui() {
     // Get audio level (0-100)
     uint8_t level = audio_get_level();
     
+    // Debug: print level every 500ms
+    static unsigned long last_debug = 0;
+    if (millis() - last_debug > 500) {
+        Serial.printf("Audio level: %d\n", level);
+        last_debug = millis();
+    }
+    
     // Update duration arc (10 seconds = 100%)
     unsigned long elapsed = millis() - recording_start_time;
     int progress = (elapsed * 100) / 10000;  // 10 sec max
