@@ -104,7 +104,16 @@ void status_ring_hide() {
 void status_ring_update() {
     // Safety: bail early if not active or ring doesn't exist
     if (current_state == STATE_IDLE) return;
-    if (!ring || !lv_obj_is_valid(ring)) return;
+    if (!ring) {
+        Serial.println("Status ring: ring is NULL!");
+        return;
+    }
+    if (!lv_obj_is_valid(ring)) {
+        Serial.println("Status ring: ring object INVALID!");
+        ring = NULL;  // Prevent further access
+        current_state = STATE_IDLE;
+        return;
+    }
     
     // Throttle updates to ~30fps
     static unsigned long last_update = 0;

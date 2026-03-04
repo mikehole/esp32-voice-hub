@@ -491,6 +491,14 @@ void check_encoder() {
 void loop() {
     lv_timer_handler();
     
+    // Periodic heap check (every 10 seconds)
+    static unsigned long last_heap_check = 0;
+    if (millis() - last_heap_check > 10000) {
+        Serial.printf("Heap: %u free, %u largest block, PSRAM: %u free\n",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getFreePsram());
+        last_heap_check = millis();
+    }
+    
     // Check WiFi state and update connecting indicator
     static WiFiState last_wifi_state = WIFI_STATE_IDLE;
     WiFiState wifi_state = wifi_manager_get_state();
