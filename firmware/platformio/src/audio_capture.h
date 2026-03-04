@@ -25,8 +25,11 @@ bool audio_is_recording();
 // Get recording duration in milliseconds
 uint32_t audio_get_recording_duration_ms();
 
-// Play audio through DAC (for TTS playback)
+// Play mono audio through DAC (converts to stereo internally)
 bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate);
+
+// Play stereo audio through DAC (direct playback, no conversion)
+bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate);
 
 // Check if currently playing
 bool audio_is_playing();

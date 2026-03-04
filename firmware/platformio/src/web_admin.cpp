@@ -618,6 +618,93 @@ static esp_err_t openclaw_ask_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Play raw audio endpoint - POST raw PCM/WAV data
+// Query params: rate=SAMPLERATE (default 44100), stereo=1/0 (default 1), wav=1/0 (default 0)
+static esp_err_t play_handler(httpd_req_t *req) {
+    // Parse query params
+    char query[64] = {0};
+    uint32_t sample_rate = 44100;
+    bool is_stereo = true;
+    bool is_wav = false;
+    
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char param[16];
+        if (httpd_query_key_value(query, "rate", param, sizeof(param)) == ESP_OK) {
+            sample_rate = atoi(param);
+        }
+        if (httpd_query_key_value(query, "stereo", param, sizeof(param)) == ESP_OK) {
+            is_stereo = (param[0] == '1');
+        }
+        if (httpd_query_key_value(query, "wav", param, sizeof(param)) == ESP_OK) {
+            is_wav = (param[0] == '1');
+        }
+    }
+    
+    int content_len = req->content_len;
+    if (content_len <= 0) {
+        httpd_resp_send(req, "No audio data", 13);
+        return ESP_OK;
+    }
+    
+    Serial.printf("Play: Receiving %d bytes, rate=%u, stereo=%d, wav=%d\n", 
+                  content_len, sample_rate, is_stereo, is_wav);
+    
+    // Allocate buffer in PSRAM
+    uint8_t* audio_data = (uint8_t*)heap_caps_malloc(content_len, MALLOC_CAP_SPIRAM);
+    if (!audio_data) {
+        httpd_resp_send(req, "Failed to allocate buffer", 25);
+        return ESP_OK;
+    }
+    
+    // Receive audio data
+    int total = 0;
+    while (total < content_len) {
+        int received = httpd_req_recv(req, (char*)(audio_data + total), content_len - total);
+        if (received <= 0) {
+            heap_caps_free(audio_data);
+            httpd_resp_send(req, "Failed to receive data", 22);
+            return ESP_OK;
+        }
+        total += received;
+    }
+    
+    // If WAV, skip 44-byte header and extract sample rate
+    uint8_t* pcm_data = audio_data;
+    size_t pcm_size = content_len;
+    if (is_wav && content_len > 44) {
+        // Parse WAV header for sample rate
+        uint32_t wav_rate = audio_data[24] | (audio_data[25] << 8) | 
+                           (audio_data[26] << 16) | (audio_data[27] << 24);
+        uint16_t wav_channels = audio_data[22] | (audio_data[23] << 8);
+        sample_rate = wav_rate;
+        is_stereo = (wav_channels == 2);
+        pcm_data = audio_data + 44;
+        pcm_size = content_len - 44;
+        Serial.printf("Play: WAV header: %u Hz, %d channels\n", wav_rate, wav_channels);
+    }
+    
+    // Play - if mono, we need to convert to stereo
+    bool played;
+    if (is_stereo) {
+        // Direct stereo playback
+        played = audio_play_stereo(pcm_data, pcm_size, sample_rate);
+    } else {
+        // Mono - use existing mono-to-stereo conversion
+        played = audio_play(pcm_data, pcm_size, sample_rate);
+    }
+    
+    heap_caps_free(audio_data);
+    
+    if (played) {
+        char resp[64];
+        snprintf(resp, sizeof(resp), "Played %u bytes at %u Hz", pcm_size, sample_rate);
+        httpd_resp_send(req, resp, strlen(resp));
+    } else {
+        httpd_resp_send(req, "Playback failed", 15);
+    }
+    return ESP_OK;
+}
+
 void web_admin_register(httpd_handle_t server) {
     httpd_uri_t admin = { .uri = "/admin", .method = HTTP_GET, .handler = admin_handler };
     httpd_uri_t status = { .uri = "/api/status", .method = HTTP_GET, .handler = status_handler };
@@ -633,6 +720,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t oc_token = { .uri = "/api/openclaw/token", .method = HTTP_POST, .handler = openclaw_token_handler };
     httpd_uri_t oc_ask = { .uri = "/api/openclaw/ask", .method = HTTP_GET, .handler = openclaw_ask_handler };
     httpd_uri_t speak = { .uri = "/api/speak", .method = HTTP_POST, .handler = speak_handler };
+    httpd_uri_t play = { .uri = "/api/play", .method = HTTP_POST, .handler = play_handler };
     
     esp_err_t err;
     err = httpd_register_uri_handler(server, &admin);
@@ -651,7 +739,8 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &oc_token);
     err = httpd_register_uri_handler(server, &oc_ask);
     err = httpd_register_uri_handler(server, &speak);
-    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak registered: %d\n", err);
+    err = httpd_register_uri_handler(server, &play);
+    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/play registered: %d\n", err);
     
     Serial.println("Admin endpoints registered");
 }

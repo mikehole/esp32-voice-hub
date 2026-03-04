@@ -336,6 +336,77 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     return true;
 }
 
+// Play stereo audio directly (no conversion needed)
+bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
+    if (playing || recording) {
+        return false;
+    }
+    
+    Serial.printf("Audio: Playing %u bytes stereo at %u Hz\n", size, sample_rate);
+    
+    // Reconfigure I2S clock for requested sample rate
+    i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
+    esp_err_t err = i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
+    if (err != ESP_OK) {
+        Serial.printf("Audio: Failed to reconfig clock: %d\n", err);
+    }
+    
+    err = i2s_channel_enable(tx_chan);
+    if (err != ESP_OK) {
+        Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
+        return false;
+    }
+    
+    playing = true;
+    
+    // Direct write - data is already stereo 16-bit
+    // Apply volume scaling
+    const float volume = 0.3f;
+    const size_t CHUNK_SIZE = 2048;
+    int16_t* vol_buf = (int16_t*)heap_caps_malloc(CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!vol_buf) {
+        Serial.println("Audio: Failed to allocate volume buffer");
+        i2s_channel_disable(tx_chan);
+        playing = false;
+        return false;
+    }
+    
+    size_t bytes_written = 0;
+    size_t offset = 0;
+    const int16_t* samples = (const int16_t*)data;
+    size_t total_samples = size / 2;  // 16-bit samples
+    
+    while (offset < total_samples && playing) {
+        size_t samples_to_process = min((size_t)(CHUNK_SIZE / 2), total_samples - offset);
+        
+        for (size_t i = 0; i < samples_to_process; i++) {
+            vol_buf[i] = (int16_t)(samples[offset + i] * volume);
+        }
+        
+        size_t bytes_to_write = samples_to_process * 2;
+        err = i2s_channel_write(tx_chan, vol_buf, bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
+        if (err == ESP_OK) {
+            offset += samples_to_process;
+        } else {
+            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
+            break;
+        }
+        
+        yield();
+    }
+    
+    // Flush with silence
+    memset(vol_buf, 0, CHUNK_SIZE);
+    i2s_channel_write(tx_chan, vol_buf, CHUNK_SIZE, &bytes_written, pdMS_TO_TICKS(100));
+    
+    heap_caps_free(vol_buf);
+    i2s_channel_disable(tx_chan);
+    playing = false;
+    
+    Serial.printf("Audio: Stereo playback complete (%u samples)\n", offset);
+    return true;
+}
+
 bool audio_is_playing() {
     return playing;
 }
