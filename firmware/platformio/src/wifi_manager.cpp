@@ -204,7 +204,7 @@ static esp_err_t redirect_handler(httpd_req_t *req) {
 
 static void start_webserver() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16;  // Increased for admin + audio endpoints
+    config.max_uri_handlers = 20;  // Increased for admin + audio + TTS endpoints
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.stack_size = 8192;      // Larger stack for handlers
     config.max_open_sockets = 7;   // More concurrent connections
