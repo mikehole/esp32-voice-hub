@@ -58,9 +58,13 @@ int selected_wedge = 0;
 lv_obj_t* wedge_labels_obj[8];
 lv_obj_t* center_icon = NULL;
 lv_obj_t* center_obj = NULL;
+lv_obj_t* highlight_meter = NULL;  // Separate meter for highlight arc
+lv_meter_indicator_t* highlight_arc = NULL;
+lv_meter_scale_t* highlight_scale = NULL;
 uint16_t last_touch_x = 0;
 uint16_t last_touch_y = 0;
 bool was_touched = false;
+bool ui_initialized = false;
 
 // Encoder state
 static knob_handle_t knob_handle = NULL;
@@ -126,7 +130,7 @@ void create_radial_ui() {
     // Black background
     lv_obj_set_style_bg_color(screen, COLOR_BG, 0);
     
-    // Create meter for the pie chart
+    // Create base meter for the pie chart (static, never changes)
     lv_obj_t* meter = lv_meter_create(screen);
     lv_obj_set_size(meter, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
     lv_obj_center(meter);
@@ -139,23 +143,33 @@ void create_radial_ui() {
     lv_meter_set_scale_range(meter, scale, 0, 360, 360, 270);
     lv_meter_set_scale_ticks(meter, scale, 0, 0, 0, lv_color_black());
     
-    // Draw 8 arc segments
+    // Draw 8 arc segments - all in base colors (no selection highlight here)
     for (int i = 0; i < 8; i++) {
         int start = i * 45;
         int end = start + 43;
-        
-        lv_color_t color;
-        if (i == selected_wedge) {
-            color = COLOR_SELECTED;
-        } else {
-            color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
-        }
+        lv_color_t color = (i % 2 == 0) ? COLOR_WEDGE : COLOR_WEDGE_ALT;
         
         lv_meter_indicator_t* indic = lv_meter_add_arc(meter, scale, 
             OUTER_RADIUS - INNER_RADIUS, color, 0);
         lv_meter_set_indicator_start_value(meter, indic, start);
         lv_meter_set_indicator_end_value(meter, indic, end);
     }
+    
+    // Create highlight meter (overlays selected wedge)
+    highlight_meter = lv_meter_create(screen);
+    lv_obj_set_size(highlight_meter, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
+    lv_obj_center(highlight_meter);
+    lv_obj_set_style_bg_opa(highlight_meter, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(highlight_meter, 0, 0);
+    lv_obj_set_style_pad_all(highlight_meter, 0, 0);
+    
+    highlight_scale = lv_meter_add_scale(highlight_meter);
+    lv_meter_set_scale_range(highlight_meter, highlight_scale, 0, 360, 360, 270);
+    lv_meter_set_scale_ticks(highlight_meter, highlight_scale, 0, 0, 0, lv_color_black());
+    
+    // Create the highlight arc
+    highlight_arc = lv_meter_add_arc(highlight_meter, highlight_scale, 
+        OUTER_RADIUS - INNER_RADIUS, COLOR_SELECTED, 0);
     
     // Add labels for each wedge
     for (int i = 0; i < 8; i++) {
@@ -169,12 +183,7 @@ void create_radial_ui() {
         lv_obj_t* label = lv_label_create(screen);
         lv_label_set_text(label, wedge_labels[i]);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-        
-        if (i == selected_wedge) {
-            lv_obj_set_style_text_color(label, COLOR_CENTER, 0);
-        } else {
-            lv_obj_set_style_text_color(label, COLOR_TEXT, 0);
-        }
+        lv_obj_set_style_text_color(label, COLOR_TEXT, 0);
         lv_obj_set_pos(label, label_x, label_y);
         wedge_labels_obj[i] = label;
     }
@@ -190,42 +199,73 @@ void create_radial_ui() {
     lv_obj_set_style_clip_corner(center_obj, true, 0);
     lv_obj_clear_flag(center_obj, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Show avatar for Minerva, icon for others
+    // Center icon (created once, updated on selection change)
+    center_icon = lv_label_create(center_obj);
+    lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
+    lv_obj_center(center_icon);
+    
+    ui_initialized = true;
+    
+    // Apply initial selection
+    update_selection();
+}
+
+// Update just the selection highlight - no object destruction!
+void update_selection() {
+    if (!ui_initialized) return;
+    
+    // Move highlight arc to selected wedge
+    int start = selected_wedge * 45;
+    int end = start + 43;
+    lv_meter_set_indicator_start_value(highlight_meter, highlight_arc, start);
+    lv_meter_set_indicator_end_value(highlight_meter, highlight_arc, end);
+    
+    // Update label colors
+    for (int i = 0; i < 8; i++) {
+        if (wedge_labels_obj[i]) {
+            if (i == selected_wedge) {
+                lv_obj_set_style_text_color(wedge_labels_obj[i], COLOR_CENTER, 0);
+            } else {
+                lv_obj_set_style_text_color(wedge_labels_obj[i], COLOR_TEXT, 0);
+            }
+        }
+    }
+    
+    // Update center content
     if (selected_wedge == 0) {
-        // Minerva avatar image
-        lv_obj_t* avatar = lv_img_create(center_obj);
-        lv_img_set_src(avatar, &minerva_avatar);
-        lv_obj_center(avatar);
+        // Minerva - show avatar
+        lv_label_set_text(center_icon, "");  // Hide icon
+        // Check if avatar already exists
+        lv_obj_t* existing_avatar = lv_obj_get_child(center_obj, 0);
+        if (existing_avatar && existing_avatar != center_icon) {
+            // Avatar exists, ensure it's visible
+            lv_obj_clear_flag(existing_avatar, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            // Create avatar
+            lv_obj_t* avatar = lv_img_create(center_obj);
+            lv_img_set_src(avatar, &minerva_avatar);
+            lv_obj_center(avatar);
+            lv_obj_move_background(avatar);  // Put behind icon
+        }
+        lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
     } else {
-        // Icon for other selections
-        center_icon = lv_label_create(center_obj);
+        // Other - show icon, hide avatar if exists
+        lv_obj_t* child = lv_obj_get_child(center_obj, 0);
+        while (child) {
+            if (child != center_icon) {
+                lv_obj_add_flag(child, LV_OBJ_FLAG_HIDDEN);
+            }
+            child = lv_obj_get_child(center_obj, lv_obj_get_index(child) + 1);
+        }
         lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
         lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
-        lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
         lv_obj_center(center_icon);
     }
 }
 
-// Flag to prevent re-entrant UI rebuilds
-static volatile bool ui_rebuilding = false;
-
 void rebuild_ui() {
-    // Prevent re-entrant calls that crash PSRAM allocator
-    if (ui_rebuilding) {
-        return;
-    }
-    ui_rebuilding = true;
-    
-    // Clear all children from screen
-    lv_obj_clean(lv_scr_act());
-    
-    // Let LVGL process the deletion
-    lv_timer_handler();
-    
-    // Rebuild the UI with new selection
-    create_radial_ui();
-    
-    ui_rebuilding = false;
+    // No more destruction - just update the selection highlight
+    update_selection();
 }
 
 void check_touch() {
@@ -290,11 +330,9 @@ void setup() {
 
 void check_encoder() {
     static unsigned long last_encoder_time = 0;
-    const unsigned long DEBOUNCE_MS = 150;  // Increased debounce for stability
+    const unsigned long DEBOUNCE_MS = 30;  // Fast response now that we don't rebuild
     
-    // Skip if UI is rebuilding or debounce active
-    if (ui_rebuilding || (millis() - last_encoder_time < DEBOUNCE_MS)) {
-        // Clear flags silently
+    if (millis() - last_encoder_time < DEBOUNCE_MS) {
         knob_left_flag = false;
         knob_right_flag = false;
         return;
@@ -306,14 +344,14 @@ void check_encoder() {
     knob_right_flag = false;
     
     if (left && !right) {
-        selected_wedge = (selected_wedge + 7) % 8;  // Decrement with wrap
+        selected_wedge = (selected_wedge + 7) % 8;
         Serial.printf("Encoder LEFT - Selected: %s\n", wedge_labels[selected_wedge]);
-        rebuild_ui();
+        update_selection();
         last_encoder_time = millis();
     } else if (right && !left) {
-        selected_wedge = (selected_wedge + 1) % 8;  // Increment with wrap
+        selected_wedge = (selected_wedge + 1) % 8;
         Serial.printf("Encoder RIGHT - Selected: %s\n", wedge_labels[selected_wedge]);
-        rebuild_ui();
+        update_selection();
         last_encoder_time = millis();
     }
 }
