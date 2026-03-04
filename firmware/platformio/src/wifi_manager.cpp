@@ -82,7 +82,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
             snprintf(current_ip, sizeof(current_ip), IPSTR, IP2STR(&event->ip_info.ip));
             Serial.printf("WiFi: Got IP: %s\n", current_ip);
             wifi_connected = true;
-            current_state = WIFI_STATE_CONNECTED;
+            // Don't set WIFI_STATE_CONNECTED here - let loop() handle it so webserver starts
             status_message = String("Connected: ") + current_ip;
         }
     }
@@ -267,15 +267,27 @@ void wifi_manager_init() {
 }
 
 void wifi_manager_loop() {
+    static bool webserver_started = false;
+    
     if (current_state == WIFI_STATE_CONNECTING) {
         if (wifi_connected) {
             current_state = WIFI_STATE_CONNECTED;
-            start_webserver();  // Start web server in STA mode too
+            Serial.println("WiFi: Connected, starting webserver");
+            start_webserver();
+            webserver_started = true;
         } else if (millis() - connect_start_time > CONNECT_TIMEOUT_MS) {
             Serial.println("WiFi: Timeout, starting AP");
             current_state = WIFI_STATE_FAILED;
             wifi_manager_start_ap();
+            webserver_started = true;
         }
+    }
+    
+    // Catch case where connection happened before loop started checking
+    if (current_state == WIFI_STATE_CONNECTED && !webserver_started && server_handle == NULL) {
+        Serial.println("WiFi: Late webserver start");
+        start_webserver();
+        webserver_started = true;
     }
 }
 
