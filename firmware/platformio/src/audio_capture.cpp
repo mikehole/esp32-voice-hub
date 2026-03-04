@@ -87,7 +87,7 @@ static bool init_dac_output() {
     
     i2s_std_config_t tx_std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = AUDIO_I2S_BCLK_PIN,
@@ -108,7 +108,14 @@ static bool init_dac_output() {
         return false;
     }
     
-    Serial.println("Audio: DAC output initialized");
+    // Enable channel at init and keep it enabled (like reference code)
+    err = i2s_channel_enable(tx_chan);
+    if (err != ESP_OK) {
+        Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
+        return false;
+    }
+    
+    Serial.println("Audio: DAC output initialized and enabled");
     return true;
 }
 
@@ -251,19 +258,17 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     Serial.printf("Audio: Playing %u bytes at %u Hz\n", size, sample_rate);
     
+    // Disable channel to reconfigure clock, then re-enable
+    i2s_channel_disable(tx_chan);
+    
     // Reconfigure I2S clock for requested sample rate
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
     esp_err_t err = i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
     if (err != ESP_OK) {
         Serial.printf("Audio: Failed to reconfig clock: %d\n", err);
-        // Continue anyway, might work
     }
     
-    err = i2s_channel_enable(tx_chan);
-    if (err != ESP_OK) {
-        Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
-        return false;
-    }
+    i2s_channel_enable(tx_chan);
     
     playing = true;
     
@@ -328,7 +333,7 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     heap_caps_free(stereo_buf);
     
-    i2s_channel_disable(tx_chan);
+    // Don't disable channel - keep it enabled like reference code
     playing = false;
     
     Serial.printf("Audio: Playback complete (%u samples)\n", sample_idx);
