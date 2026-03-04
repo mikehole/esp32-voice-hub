@@ -15,7 +15,7 @@ static SemaphoreHandle_t lvgl_mutex = NULL;
 #define COLOR_CONNECTING   lv_color_hex(0x3498DB)  // Blue for connecting
 #define COLOR_RECORDING    lv_color_hex(0xE74C3C)  // Red
 #define COLOR_THINKING     lv_color_hex(0xF39C12)  // Orange  
-#define COLOR_SPEAKING     lv_color_hex(0x00D4FF)  // Cyan (matches circuit traces)
+#define COLOR_SPEAKING     lv_color_hex(0x00A5C8)  // Muted cyan (matches circuit traces)
 #define COLOR_RING_BG      lv_color_hex(0x1A1A1A)  // Dark background
 
 // Ring objects - multiple concentric rings
