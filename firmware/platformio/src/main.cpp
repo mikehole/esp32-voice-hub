@@ -17,6 +17,7 @@
 #include "audio_capture.h"
 #include "openai_client.h"
 #include "conversation.h"
+#include "status_ring.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -69,19 +70,15 @@ uint16_t last_touch_y = 0;
 bool was_touched = false;
 bool ui_initialized = false;
 
-// Recording visualization
-lv_obj_t* recording_container = NULL;
-lv_obj_t* ring_inner = NULL;
-lv_obj_t* ring_middle = NULL;
-lv_obj_t* ring_outer = NULL;
-lv_obj_t* duration_arc = NULL;
-lv_obj_t* rec_label = NULL;
+// Status ring visualization (around avatar)
+lv_obj_t* status_ring = NULL;
 unsigned long recording_start_time = 0;
-bool recording_ui_visible = false;
+float status_animation_phase = 0;
 
-// Colors for recording UI
-#define COLOR_REC_RING     lv_color_hex(0xE74C3C)  // Red for recording
-#define COLOR_REC_DIM      lv_color_hex(0x5C1F1A)  // Dim red
+// Colors for status ring
+#define COLOR_RECORDING    lv_color_hex(0xE74C3C)  // Red for recording
+#define COLOR_THINKING     lv_color_hex(0xF39C12)  // Orange for thinking
+#define COLOR_SPEAKING     lv_color_hex(0x2ECC71)  // Green for speaking
 #define COLOR_REC_ARC      lv_color_hex(0x3498DB)  // Blue duration arc
 
 // Encoder state
@@ -107,12 +104,19 @@ void set_brightness_value(int value) {
 
 // Forward declarations
 void update_selection();
-void show_recording_ui();
-void show_thinking_ui();
-void show_speaking_ui();
-void hide_recording_ui();
-void update_recording_ui();
+void show_status_ring(ProcessingState state);
+void hide_status_ring();
+void update_status_ring();
 void process_voice_command(const uint8_t* audio_data, size_t audio_size);
+
+// Processing states
+enum ProcessingState {
+    STATE_IDLE,
+    STATE_RECORDING,
+    STATE_THINKING,
+    STATE_SPEAKING
+};
+static ProcessingState current_state = STATE_IDLE;
 
 // Encoder callbacks
 static void knob_left_cb(void *arg, void *data) {
@@ -521,13 +525,13 @@ bool is_center_touch(uint16_t x, uint16_t y) {
 void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     if (audio_size < 1000) {
         Serial.println("Recording too short, ignoring");
-        hide_recording_ui();
+        status_ring_hide();
         return;
     }
     
-    // Show thinking state
-    show_thinking_ui();
-    lv_task_handler();  // Update display
+    // Show thinking state (orange pulsing ring)
+    status_ring_show(STATE_THINKING);
+    lv_task_handler();
     Serial.println("Processing voice command...");
     
     // Step 1: Transcribe with Whisper
@@ -535,7 +539,7 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     if (!transcript || strlen(transcript) == 0) {
         Serial.printf("Transcription failed: %s\n", openai_get_last_error());
         if (transcript) free(transcript);
-        hide_recording_ui();
+        status_ring_hide();
         return;
     }
     
@@ -547,7 +551,7 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     
     if (!response || strlen(response) == 0) {
         Serial.printf("OpenClaw failed: %s\n", openai_get_last_error());
-        hide_recording_ui();
+        status_ring_hide();
         return;
     }
     
@@ -560,19 +564,19 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     
     if (!tts_audio) {
         Serial.printf("TTS failed: %s\n", openai_get_last_error());
-        hide_recording_ui();
+        status_ring_hide();
         return;
     }
     
-    // Step 4: Show speaking state and play
-    show_speaking_ui();
-    lv_task_handler();  // Update display
+    // Step 4: Show speaking state (green wiggling ring) and play
+    status_ring_show(STATE_SPEAKING);
+    lv_task_handler();
     Serial.printf("Playing TTS: %u bytes\n", tts_size);
     audio_play(tts_audio, tts_size, 24000);
     heap_caps_free(tts_audio);
     
     // Return to idle
-    hide_recording_ui();
+    status_ring_hide();
 }
 
 void check_touch() {
@@ -580,12 +584,14 @@ void check_touch() {
     uint8_t touched = getTouch(&x, &y);
     
     // Press-and-hold for recording when Minerva selected
-    if (selected_wedge == 0 && current_state != STATE_THINKING && current_state != STATE_SPEAKING) {
+    ProcessingState ring_state = status_ring_get_state();
+    if (selected_wedge == 0 && ring_state != STATE_THINKING && ring_state != STATE_SPEAKING) {
         // Touch DOWN on center = start recording
         if (touched && !was_touched && is_center_touch(x, y)) {
             Serial.println("Center touch DOWN - start recording");
             if (audio_start_recording()) {
-                show_recording_ui();
+                status_ring_show(STATE_RECORDING);
+                recording_start_time = millis();
             }
             was_touched = touched;
             return;
@@ -598,7 +604,7 @@ void check_touch() {
             const uint8_t* audio_data = audio_stop_recording(&audio_size);
             Serial.printf("Audio captured: %u bytes\n", audio_size);
             
-            // Process in a non-blocking way (though currently blocks)
+            // Process voice command
             process_voice_command(audio_data, audio_size);
             
             was_touched = touched;
@@ -677,6 +683,9 @@ void setup() {
     
     create_radial_ui();
     
+    // Initialize status ring (after UI is created)
+    status_ring_init(lv_scr_act());
+    
     Serial.println("Setup complete! Touch or rotate to select.");
 }
 
@@ -713,6 +722,6 @@ void loop() {
     check_touch();
     check_encoder();
     wifi_manager_loop();
-    update_recording_ui();  // Update pulsing rings if recording
+    status_ring_update();  // Update animated status ring
     delay(10);
 }
