@@ -368,14 +368,20 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t audio_stop = { .uri = "/api/audio/stop", .method = HTTP_GET, .handler = audio_stop_handler };
     httpd_uri_t audio_download = { .uri = "/api/audio/download", .method = HTTP_GET, .handler = audio_download_handler };
     
-    httpd_register_uri_handler(server, &admin);
-    httpd_register_uri_handler(server, &status);
-    httpd_register_uri_handler(server, &brightness);
-    httpd_register_uri_handler(server, &clear);
-    httpd_register_uri_handler(server, &screenshot);
-    httpd_register_uri_handler(server, &audio_start);
-    httpd_register_uri_handler(server, &audio_stop);
-    httpd_register_uri_handler(server, &audio_download);
+    esp_err_t err;
+    err = httpd_register_uri_handler(server, &admin);
+    Serial.printf("Admin: /admin registered: %d\n", err);
+    err = httpd_register_uri_handler(server, &status);
+    Serial.printf("Admin: /api/status registered: %d\n", err);
+    err = httpd_register_uri_handler(server, &brightness);
+    err = httpd_register_uri_handler(server, &clear);
+    err = httpd_register_uri_handler(server, &screenshot);
+    err = httpd_register_uri_handler(server, &audio_start);
+    Serial.printf("Admin: /api/audio/start registered: %d\n", err);
+    err = httpd_register_uri_handler(server, &audio_stop);
+    Serial.printf("Admin: /api/audio/stop registered: %d\n", err);
+    err = httpd_register_uri_handler(server, &audio_download);
+    Serial.printf("Admin: /api/audio/download registered: %d\n", err);
     
     Serial.println("Admin endpoints registered");
 }
