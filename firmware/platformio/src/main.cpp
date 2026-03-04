@@ -276,21 +276,25 @@ void update_recording_ui() {
     if (progress > 100) progress = 100;
     lv_arc_set_value(duration_arc, progress);
     
+    // Amplify level for more visible effect (levels are typically 8-20)
+    // Map 0-25 input to 0-100 visual range
+    int amplified = min(100, level * 4);
+    
     // Pulse rings using opacity and border width (no resizing = no relayout)
-    // Inner ring: opacity pulses with level
-    lv_opa_t inner_opa = LV_OPA_30 + (level * (LV_OPA_100 - LV_OPA_30) / 100);
+    // Inner ring: opacity pulses with level (20% to 100%)
+    lv_opa_t inner_opa = LV_OPA_20 + (amplified * (LV_OPA_100 - LV_OPA_20) / 100);
     lv_obj_set_style_bg_opa(ring_inner, inner_opa, 0);
     
-    // Middle ring: border width 2-8 based on level
-    int middle_border = 2 + (level * 6 / 100);
+    // Middle ring: border width 2-12 based on level, high opacity range
+    int middle_border = 2 + (amplified * 10 / 100);
     lv_obj_set_style_border_width(ring_middle, middle_border, 0);
-    lv_opa_t middle_opa = LV_OPA_40 + (level * (LV_OPA_90 - LV_OPA_40) / 100);
+    lv_opa_t middle_opa = LV_OPA_20 + (amplified * (LV_OPA_100 - LV_OPA_20) / 100);
     lv_obj_set_style_border_opa(ring_middle, middle_opa, 0);
     
-    // Outer ring: border width 1-6 based on level
-    int outer_border = 1 + (level * 5 / 100);
+    // Outer ring: border width 1-10 based on level
+    int outer_border = 1 + (amplified * 9 / 100);
     lv_obj_set_style_border_width(ring_outer, outer_border, 0);
-    lv_opa_t outer_opa = LV_OPA_20 + (level * (LV_OPA_70 - LV_OPA_20) / 100);
+    lv_opa_t outer_opa = LV_OPA_10 + (amplified * (LV_OPA_90 - LV_OPA_10) / 100);
     lv_obj_set_style_border_opa(ring_outer, outer_opa, 0);
 }
 
