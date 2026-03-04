@@ -7,14 +7,9 @@
 #include "conversation.h"
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
-#include "lvgl.h"
-#include "status_ring.h"
 
-// Helper to update UI during blocking operations
-static void update_ui() {
-    lv_timer_handler();
-    status_ring_update();
-}
+// NOTE: UI updates handled by main loop on Core 1
+// Background task on Core 0 should NOT call LVGL functions (not thread-safe)
 
 // Non-blocking read string with UI updates
 static String readStringWithUI(WiFiClientSecure& client, unsigned long timeoutMs = 30000) {
@@ -30,7 +25,7 @@ static String readStringWithUI(WiFiClientSecure& client, unsigned long timeoutMs
         } else {
             // No data, update UI while waiting
             if (millis() - lastUI > 30) {
-                update_ui();
+                yield();
                 lastUI = millis();
             }
             delay(1);
@@ -55,7 +50,7 @@ static String readLineWithUI(WiFiClientSecure& client, unsigned long timeoutMs =
         } else {
             // No data, update UI while waiting
             if (millis() - lastUI > 30) {
-                update_ui();
+                yield();
                 lastUI = millis();
             }
             delay(1);
@@ -230,7 +225,7 @@ uint8_t* openai_tts(const char* text, size_t* out_size) {
     // Wait for response headers - update UI frequently
     unsigned long start = millis();
     while (!client.available() && millis() - start < 30000) {
-        update_ui();  // Keep UI animating (~30fps)
+        yield();  // Keep UI animating (~30fps)
         delay(5);     // Short delay for smooth animation
     }
     
@@ -449,7 +444,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     // Wait for response - update UI frequently for animation
     unsigned long start = millis();
     while (!client.available() && millis() - start < 30000) {
-        update_ui();  // Keep UI animating (~30fps)
+        yield();  // Keep UI animating (~30fps)
         delay(5);     // Short delay, let UI update often
     }
     
@@ -674,7 +669,7 @@ char* openclaw_send_message(const char* message) {
     // Wait for response - update UI frequently for animation
     unsigned long start = millis();
     while (!client.available() && millis() - start < 60000) {
-        update_ui();  // Keep UI animating (~30fps)
+        yield();  // Keep UI animating (~30fps)
         delay(5);     // Short delay, let UI update often
     }
     

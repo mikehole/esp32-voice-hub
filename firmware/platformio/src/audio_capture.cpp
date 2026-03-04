@@ -362,7 +362,7 @@ bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
             break;
         }
         
-        // Update UI during playback (every ~100ms worth of samples)
+        // Update UI during playback (runs on main thread, so LVGL is safe)
         static size_t last_ui_update = 0;
         if (offset - last_ui_update > sample_rate / 10) {  // ~100ms
             lv_timer_handler();
@@ -370,7 +370,7 @@ bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
             last_ui_update = offset;
         }
         
-        yield();
+        yield();  // Let other tasks run
     }
     
     // Flush with silence
