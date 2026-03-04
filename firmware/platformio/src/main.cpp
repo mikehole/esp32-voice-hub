@@ -255,17 +255,30 @@ void setup() {
 }
 
 void check_encoder() {
+    static unsigned long last_encoder_time = 0;
+    const unsigned long DEBOUNCE_MS = 50;  // Debounce rapid spins
+    
+    if (millis() - last_encoder_time < DEBOUNCE_MS) {
+        // Clear flags but ignore rapid inputs
+        knob_left_flag = false;
+        knob_right_flag = false;
+        return;
+    }
+    
     if (knob_left_flag) {
         knob_left_flag = false;
+        knob_right_flag = false;  // Clear both to avoid double-processing
         selected_wedge = (selected_wedge + 7) % 8;  // Decrement with wrap
         Serial.printf("Encoder LEFT - Selected: %s\n", wedge_labels[selected_wedge]);
         rebuild_ui();
-    }
-    if (knob_right_flag) {
+        last_encoder_time = millis();
+    } else if (knob_right_flag) {
         knob_right_flag = false;
+        knob_left_flag = false;  // Clear both
         selected_wedge = (selected_wedge + 1) % 8;  // Increment with wrap
         Serial.printf("Encoder RIGHT - Selected: %s\n", wedge_labels[selected_wedge]);
         rebuild_ui();
+        last_encoder_time = millis();
     }
 }
 
