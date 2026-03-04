@@ -87,7 +87,7 @@ static bool init_dac_output() {
     
     i2s_std_config_t tx_std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = AUDIO_I2S_BCLK_PIN,
@@ -267,19 +267,45 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     playing = true;
     
+    // Convert mono to stereo (duplicate each sample to L+R channels)
+    // Input: 16-bit mono samples
+    // Output: 16-bit stereo (L, R, L, R, ...)
+    size_t stereo_buf_size = 1024;  // Process 256 mono samples at a time
+    int16_t* stereo_buf = (int16_t*)malloc(stereo_buf_size);
+    if (!stereo_buf) {
+        Serial.println("Audio: Failed to allocate stereo buffer");
+        i2s_channel_disable(tx_chan);
+        playing = false;
+        return false;
+    }
+    
     size_t bytes_written = 0;
     size_t offset = 0;
+    const int16_t* mono_samples = (const int16_t*)data;
+    size_t total_mono_samples = size / 2;
+    size_t sample_idx = 0;
     
-    while (offset < size && playing) {
-        size_t chunk = min((size_t)AUDIO_BUFFER_SIZE, size - offset);
-        err = i2s_channel_write(tx_chan, data + offset, chunk, &bytes_written, pdMS_TO_TICKS(1000));
+    while (sample_idx < total_mono_samples && playing) {
+        // Fill stereo buffer
+        size_t samples_to_process = min((size_t)256, total_mono_samples - sample_idx);
+        for (size_t i = 0; i < samples_to_process; i++) {
+            int16_t sample = mono_samples[sample_idx + i];
+            stereo_buf[i * 2] = sample;      // Left
+            stereo_buf[i * 2 + 1] = sample;  // Right
+        }
+        
+        size_t stereo_bytes = samples_to_process * 4;  // 2 channels * 2 bytes
+        err = i2s_channel_write(tx_chan, stereo_buf, stereo_bytes, &bytes_written, pdMS_TO_TICKS(1000));
         if (err == ESP_OK) {
-            offset += bytes_written;
+            sample_idx += samples_to_process;
+            offset = sample_idx * 2;
         } else {
-            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
+            Serial.printf("Audio: Write error at sample %u: %d\n", sample_idx, err);
             break;
         }
     }
+    
+    free(stereo_buf);
     
     i2s_channel_disable(tx_chan);
     playing = false;
