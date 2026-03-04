@@ -189,6 +189,23 @@ The admin panel also shows:
 - Audio recording test tools
 - API connectivity testing
 
+## 🗺️ Roadmap
+
+### Done ✅
+- [x] Voice assistant (Minerva) with Whisper STT → AI → TTS
+- [x] Expressive avatar states (idle, listening, thinking, speaking, connecting)
+- [x] Web admin panel & WiFi captive portal
+- [x] Conversation memory (SD card)
+- [x] 3D printable desk stand
+
+### Planned 🚧
+- [ ] **Bluetooth HID** — Send keyboard shortcuts for Zoom/Teams meetings (mute, camera, raise hand)
+- [ ] **Music wedge** — Spotify/media control
+- [ ] **Weather wedge** — Current conditions & forecast
+- [ ] **Home wedge** — Home Assistant integration
+- [ ] **Timer wedge** — Countdown timers & alarms
+- [ ] **Themed avatars** — Unique Minerva for each wedge
+
 ## 📝 License
 
 MIT — see [LICENSE](LICENSE)
