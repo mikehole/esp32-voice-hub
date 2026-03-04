@@ -108,14 +108,8 @@ static bool init_dac_output() {
         return false;
     }
     
-    // Enable channel at init and keep it enabled (like reference code)
-    err = i2s_channel_enable(tx_chan);
-    if (err != ESP_OK) {
-        Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
-        return false;
-    }
-    
-    Serial.println("Audio: DAC output initialized and enabled");
+    // Don't enable channel here - enable only when playing
+    Serial.println("Audio: DAC output initialized");
     return true;
 }
 
@@ -258,17 +252,18 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     Serial.printf("Audio: Playing %u bytes at %u Hz\n", size, sample_rate);
     
-    // Disable channel to reconfigure clock, then re-enable
-    i2s_channel_disable(tx_chan);
-    
-    // Reconfigure I2S clock for requested sample rate
+    // Reconfigure I2S clock for requested sample rate (must be done while disabled)
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
     esp_err_t err = i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
     if (err != ESP_OK) {
         Serial.printf("Audio: Failed to reconfig clock: %d\n", err);
     }
     
-    i2s_channel_enable(tx_chan);
+    err = i2s_channel_enable(tx_chan);
+    if (err != ESP_OK) {
+        Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
+        return false;
+    }
     
     playing = true;
     
@@ -333,7 +328,8 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     heap_caps_free(stereo_buf);
     
-    // Don't disable channel - keep it enabled like reference code
+    // Disable channel when done to stop noise
+    i2s_channel_disable(tx_chan);
     playing = false;
     
     Serial.printf("Audio: Playback complete (%u samples)\n", sample_idx);
