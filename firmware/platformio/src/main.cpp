@@ -469,12 +469,51 @@ void check_touch() {
             
             if (selected_wedge == 0) {  // Minerva selected
                 if (audio_is_recording()) {
-                    // Stop recording
+                    // Stop recording and process
                     size_t audio_size = 0;
                     const uint8_t* audio_data = audio_stop_recording(&audio_size);
                     Serial.printf("Audio captured: %u bytes\n", audio_size);
                     hide_recording_ui();
-                    // TODO: Send to OpenClaw for transcription
+                    
+                    if (audio_size > 1000) {  // At least some audio captured
+                        // Show "processing" state
+                        Serial.println("Processing voice command...");
+                        
+                        // Step 1: Transcribe with Whisper
+                        char* transcript = openai_transcribe(audio_data, audio_size);
+                        if (transcript && strlen(transcript) > 0) {
+                            Serial.printf("Transcript: '%s'\n", transcript);
+                            
+                            // Step 2: Send to OpenClaw with conversation history
+                            char* response = openclaw_send_with_history(transcript);
+                            free(transcript);
+                            
+                            if (response && strlen(response) > 0) {
+                                Serial.printf("Response: '%s'\n", response);
+                                
+                                // Step 3: Convert response to speech
+                                size_t tts_size = 0;
+                                uint8_t* tts_audio = openai_tts(response, &tts_size);
+                                free(response);
+                                
+                                if (tts_audio) {
+                                    // Step 4: Play the response
+                                    Serial.printf("Playing TTS: %u bytes\n", tts_size);
+                                    audio_play(tts_audio, tts_size, 24000);
+                                    heap_caps_free(tts_audio);
+                                } else {
+                                    Serial.printf("TTS failed: %s\n", openai_get_last_error());
+                                }
+                            } else {
+                                Serial.printf("OpenClaw failed: %s\n", openai_get_last_error());
+                            }
+                        } else {
+                            Serial.printf("Transcription failed: %s\n", openai_get_last_error());
+                            if (transcript) free(transcript);
+                        }
+                    } else {
+                        Serial.println("Recording too short, ignoring");
+                    }
                 } else {
                     // Start recording
                     if (audio_start_recording()) {
