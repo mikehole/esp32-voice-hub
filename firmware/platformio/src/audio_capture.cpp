@@ -249,10 +249,17 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
         return false;
     }
     
-    // TODO: Implement playback with sample rate conversion if needed
-    // For now, just enable and write
+    Serial.printf("Audio: Playing %u bytes at %u Hz\n", size, sample_rate);
     
-    esp_err_t err = i2s_channel_enable(tx_chan);
+    // Reconfigure I2S clock for requested sample rate
+    i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
+    esp_err_t err = i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
+    if (err != ESP_OK) {
+        Serial.printf("Audio: Failed to reconfig clock: %d\n", err);
+        // Continue anyway, might work
+    }
+    
+    err = i2s_channel_enable(tx_chan);
     if (err != ESP_OK) {
         Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
         return false;
@@ -269,6 +276,7 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
         if (err == ESP_OK) {
             offset += bytes_written;
         } else {
+            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
             break;
         }
     }
