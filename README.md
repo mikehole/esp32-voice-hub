@@ -92,12 +92,13 @@ pio run -t upload
 ### First Boot
 
 1. Device creates WiFi AP: `ESP32-Voice-Hub`
-2. Connect and open `http://192.168.4.1/admin`
-3. Configure:
-   - WiFi credentials
-   - OpenAI API key
-   - OpenClaw endpoint & token (or leave blank for direct OpenAI)
-4. Reboot — device connects to your WiFi
+2. Connect and the captive portal appears automatically
+3. Select your network and enter credentials
+4. Configure API keys in the admin panel
+
+<p align="center">
+  <img src="assets/wifi-portal.png" alt="Minerva WiFi Portal" width="250"/>
+</p>
 
 ### Using the Device
 
