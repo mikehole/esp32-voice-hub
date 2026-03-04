@@ -16,6 +16,9 @@ void openai_set_api_key(const char* key);
 bool openai_has_api_key();
 const char* openai_get_api_key();  // Returns masked version for display
 
+// Check if transcription is in progress
+bool openai_is_transcribing();
+
 // Transcribe audio using Whisper API
 // Returns transcript text (caller must free) or NULL on error
 char* openai_transcribe(const uint8_t* audio_data, size_t audio_size);

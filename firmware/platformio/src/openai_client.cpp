@@ -6,7 +6,6 @@
 #include "openai_client.h"
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 
 static const char* TAG = "openai";
 static const char* PREF_NAMESPACE = "openai";
@@ -100,7 +99,19 @@ static void build_wav_header(uint8_t* header, size_t audio_size) {
     header[43] = (audio_size >> 24) & 0xFF;
 }
 
+// Transcription state
+static volatile bool transcribing = false;
+
+bool openai_is_transcribing() {
+    return transcribing;
+}
+
 char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
+    if (transcribing) {
+        strcpy(last_error, "Transcription already in progress");
+        return NULL;
+    }
+    
     if (!openai_has_api_key()) {
         strcpy(last_error, "No API key configured");
         return NULL;
@@ -111,19 +122,15 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
         return NULL;
     }
     
+    transcribing = true;
     Serial.printf("OpenAI: Transcribing %u bytes...\n", audio_size);
     
     WiFiClientSecure client;
     client.setInsecure();  // Skip cert verification (for simplicity)
-    
-    HTTPClient http;
-    http.begin(client, WHISPER_URL);
-    http.addHeader("Authorization", String("Bearer ") + api_key);
-    http.setTimeout(30000);  // 30 second timeout
+    client.setTimeout(30);  // 30 second timeout
     
     // Build multipart form data
     String boundary = "----ESP32Boundary" + String(millis());
-    http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
     
     // Calculate content length
     String part1 = "--" + boundary + "\r\n"
@@ -137,12 +144,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     size_t wav_size = 44 + audio_size;
     size_t content_length = part1.length() + wav_size + part2.length();
     
-    http.addHeader("Content-Length", String(content_length));
-    
-    // Start POST with streaming
-    Serial.println("OpenAI: Sending request...");
-    
-    // We need to use the lower-level API for streaming upload
+    // Connect to OpenAI
     Serial.println("OpenAI: Connecting to api.openai.com:443...");
     int retries = 3;
     while (retries > 0 && !client.connect("api.openai.com", 443)) {
@@ -152,7 +154,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     }
     if (!client.connected()) {
         strcpy(last_error, "Connection failed after retries");
-        http.end();
+        transcribing = false;
         return NULL;
     }
     Serial.println("OpenAI: Connected!");
@@ -188,6 +190,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
         if (written == 0) {
             strcpy(last_error, "Write failed");
             client.stop();
+            transcribing = false;
             return NULL;
         }
         sent += written;
@@ -208,6 +211,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     if (!client.available()) {
         strcpy(last_error, "Response timeout");
         client.stop();
+        transcribing = false;
         return NULL;
     }
     
@@ -251,6 +255,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
         } else {
             strcpy(last_error, "No transcript in response");
         }
+        transcribing = false;
         return NULL;
     }
     
@@ -261,6 +266,7 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
     
     if (quoteStart < 0 || quoteEnd <= quoteStart) {
         strcpy(last_error, "Failed to parse response");
+        transcribing = false;
         return NULL;
     }
     
@@ -273,5 +279,6 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size) {
         Serial.printf("OpenAI: Transcript: %s\n", result);
     }
     
+    transcribing = false;
     return result;
 }
