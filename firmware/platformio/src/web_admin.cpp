@@ -75,7 +75,7 @@ static const char ADMIN_HTML[] PROGMEM =
 "<input type=\"text\" id=\"ocurl\" placeholder=\"https://mikesdocker\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
 "<button onclick=\"saveOC()\">Save Endpoint</button>"
 "<br>"
-"<input type=\"password\" id=\"octoken\" placeholder=\"hooks.token\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
+"<input type=\"password\" id=\"octoken\" placeholder=\"Gateway token (OPENCLAW_GATEWAY_TOKEN)\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
 "<button onclick=\"saveOCToken()\">Save Token</button>"
 "<button onclick=\"testOC()\">Test AI Response</button>"
 "<div id=\"ocresult\" style=\"margin-top:10px\"></div>"

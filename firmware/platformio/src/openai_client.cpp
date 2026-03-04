@@ -355,6 +355,11 @@ char* openclaw_send_message(const char* message) {
         return NULL;
     }
     
+    if (!openclaw_has_token()) {
+        strcpy(last_error, "No OpenClaw token configured");
+        return NULL;
+    }
+    
     if (!message || strlen(message) == 0) {
         strcpy(last_error, "Empty message");
         return NULL;
@@ -398,8 +403,8 @@ char* openclaw_send_message(const char* message) {
         return NULL;
     }
     
-    // Build JSON body with sessionKey for conversation continuity
-    String body = "{\"message\":\"";
+    // Build OpenAI Chat Completions format JSON body
+    String body = "{\"model\":\"default\",\"messages\":[{\"role\":\"user\",\"content\":\"";
     // Escape the message for JSON
     for (size_t i = 0; i < strlen(message); i++) {
         char c = message[i];
@@ -409,18 +414,16 @@ char* openclaw_send_message(const char* message) {
         else if (c == '\r') body += "\\r";
         else body += c;
     }
-    body += "\",\"sessionKey\":\"voice-hub\"}";
+    body += "\"}]}";
     
-    // Send HTTP request
-    client.print("POST /hooks/agent HTTP/1.1\r\n");
+    // Send HTTP request to /v1/chat/completions
+    client.print("POST /v1/chat/completions HTTP/1.1\r\n");
     client.print("Host: ");
     client.print(host);
     client.print("\r\n");
-    if (openclaw_has_token()) {
-        client.print("Authorization: Bearer ");
-        client.print(openclaw_token);
-        client.print("\r\n");
-    }
+    client.print("Authorization: Bearer ");
+    client.print(openclaw_token);  // Uses gateway token
+    client.print("\r\n");
     client.print("Content-Type: application/json\r\n");
     client.print("Content-Length: ");
     client.print(body.length());
@@ -429,6 +432,7 @@ char* openclaw_send_message(const char* message) {
     client.print(body);
     
     Serial.println("OpenClaw: Waiting for response...");
+    Serial.printf("OpenClaw: Body: %s\n", body.c_str());
     
     // Wait for response
     unsigned long start = millis();
@@ -445,10 +449,14 @@ char* openclaw_send_message(const char* message) {
     // Read response
     String response = "";
     bool headersEnded = false;
+    int httpCode = 0;
     while (client.available() || client.connected()) {
         if (client.available()) {
             String line = client.readStringUntil('\n');
             if (!headersEnded) {
+                if (line.startsWith("HTTP/1.1")) {
+                    httpCode = line.substring(9, 12).toInt();
+                }
                 if (line == "\r" || line == "") {
                     headersEnded = true;
                 }
@@ -460,12 +468,48 @@ char* openclaw_send_message(const char* message) {
     }
     client.stop();
     
-    Serial.printf("OpenClaw: Response: %s\n", response.c_str());
+    Serial.printf("OpenClaw: HTTP %d, Response: %s\n", httpCode, response.c_str());
     
-    // Return response (the /hooks/agent returns plain text or JSON)
-    char* result = (char*)malloc(response.length() + 1);
+    if (httpCode != 200) {
+        snprintf(last_error, sizeof(last_error), "HTTP %d: %s", httpCode, response.c_str());
+        return NULL;
+    }
+    
+    // Parse OpenAI response format: {"choices":[{"message":{"content":"..."}}]}
+    int contentStart = response.indexOf("\"content\"");
+    if (contentStart < 0) {
+        strcpy(last_error, "No content in response");
+        return NULL;
+    }
+    
+    int colonPos2 = response.indexOf(":", contentStart);
+    int quoteStart = response.indexOf("\"", colonPos2 + 1);
+    int quoteEnd = quoteStart + 1;
+    
+    // Find end quote, handling escaped quotes
+    while (quoteEnd < (int)response.length()) {
+        if (response[quoteEnd] == '"' && response[quoteEnd - 1] != '\\') {
+            break;
+        }
+        quoteEnd++;
+    }
+    
+    if (quoteStart < 0 || quoteEnd <= quoteStart) {
+        strcpy(last_error, "Failed to parse response content");
+        return NULL;
+    }
+    
+    String content = response.substring(quoteStart + 1, quoteEnd);
+    
+    // Unescape JSON string
+    content.replace("\\n", "\n");
+    content.replace("\\\"", "\"");
+    content.replace("\\\\", "\\");
+    
+    char* result = (char*)malloc(content.length() + 1);
     if (result) {
-        strcpy(result, response.c_str());
+        strcpy(result, content.c_str());
+        Serial.printf("OpenClaw: Parsed response: %s\n", result);
     }
     
     return result;
