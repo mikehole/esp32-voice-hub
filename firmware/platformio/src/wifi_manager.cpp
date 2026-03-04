@@ -206,6 +206,11 @@ static void start_webserver() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;  // Increased for admin + audio endpoints
     config.uri_match_fn = httpd_uri_match_wildcard;
+    config.stack_size = 8192;      // Larger stack for handlers
+    config.max_open_sockets = 7;   // More concurrent connections
+    config.lru_purge_enable = true; // Auto-close idle connections
+    config.recv_wait_timeout = 5;  // 5 second timeout
+    config.send_wait_timeout = 5;
     
     if (httpd_start(&server_handle, &config) == ESP_OK) {
         httpd_uri_t root = { .uri = "/", .method = HTTP_GET, .handler = root_handler };
