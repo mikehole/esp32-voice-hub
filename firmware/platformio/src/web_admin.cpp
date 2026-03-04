@@ -67,7 +67,7 @@ static const char ADMIN_HTML[] PROGMEM =
 "<input type=\"password\" id=\"apikey\" placeholder=\"sk-...\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
 "<button onclick=\"saveKey()\">Save API Key</button>"
 "<button onclick=\"testKey()\">Test Transcription</button>"
-"<div id=\"testresult\"></div>"
+"<div id=\"testresult\" style=\"margin-top:10px\"></div>"
 "</div>"
 "<div class=\"section\">"
 "<h3>WiFi</h3>"
