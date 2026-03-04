@@ -283,3 +283,12 @@ void audio_stop_playback() {
 uint8_t audio_get_level() {
     return current_audio_level;
 }
+
+const uint8_t* audio_get_last_recording(size_t* out_size) {
+    if (recording) {
+        *out_size = 0;
+        return NULL;  // Still recording
+    }
+    *out_size = record_position;
+    return record_buffer;
+}

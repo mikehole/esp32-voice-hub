@@ -10,6 +10,7 @@
 #include "esp_wifi.h"
 #include "wifi_manager.h"
 #include "lvgl.h"
+#include "audio_capture.h"
 
 // Brightness callbacks
 static brightness_getter_t get_brightness = NULL;
@@ -53,6 +54,13 @@ static const char ADMIN_HTML[] PROGMEM =
 "<div id=\"screenwrap\"></div>"
 "</div>"
 "<div class=\"section\">"
+"<h3>Audio</h3>"
+"<div id=\"audio\">No recording</div>"
+"<button onclick=\"startRec()\">Start Recording</button>"
+"<button onclick=\"stopRec()\">Stop Recording</button>"
+"<button onclick=\"downloadAudio()\">Download WAV</button>"
+"</div>"
+"<div class=\"section\">"
 "<h3>WiFi</h3>"
 "<button class=\"danger\" onclick=\"clearWifi()\">Clear WiFi Credentials</button>"
 "</div>"
@@ -86,6 +94,17 @@ static const char ADMIN_HTML[] PROGMEM =
 "if(confirm('Clear WiFi credentials? Device will restart in AP mode.')){"
 "fetch('/api/clear-wifi').then(()=>alert('Credentials cleared. Restarting...'));"
 "}"
+"}"
+"function startRec(){"
+"document.getElementById('audio').innerText='Starting...';"
+"fetch('/api/audio/start').then(r=>r.text()).then(t=>document.getElementById('audio').innerText=t);"
+"}"
+"function stopRec(){"
+"document.getElementById('audio').innerText='Stopping...';"
+"fetch('/api/audio/stop').then(r=>r.text()).then(t=>document.getElementById('audio').innerText=t);"
+"}"
+"function downloadAudio(){"
+"window.location='/api/audio/download';"
 "}"
 "load();setInterval(load,5000);"
 "</script></body></html>";
@@ -238,18 +257,125 @@ static esp_err_t screenshot_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Audio start recording
+static esp_err_t audio_start_handler(httpd_req_t *req) {
+    if (audio_is_recording()) {
+        httpd_resp_send(req, "Already recording", 17);
+        return ESP_OK;
+    }
+    if (audio_start_recording()) {
+        httpd_resp_send(req, "Recording started", 17);
+    } else {
+        httpd_resp_send(req, "Failed to start", 15);
+    }
+    return ESP_OK;
+}
+
+// Audio stop recording
+static esp_err_t audio_stop_handler(httpd_req_t *req) {
+    if (!audio_is_recording()) {
+        size_t size = 0;
+        audio_get_last_recording(&size);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Not recording. Last: %u bytes", size);
+        httpd_resp_send(req, msg, strlen(msg));
+        return ESP_OK;
+    }
+    size_t size = 0;
+    audio_stop_recording(&size);
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Stopped. Recorded %u bytes", size);
+    httpd_resp_send(req, msg, strlen(msg));
+    return ESP_OK;
+}
+
+// Audio download as WAV
+static esp_err_t audio_download_handler(httpd_req_t *req) {
+    size_t audio_size = 0;
+    const uint8_t* audio_data = audio_get_last_recording(&audio_size);
+    
+    if (!audio_data || audio_size == 0) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No recording available");
+        return ESP_FAIL;
+    }
+    
+    // WAV header (44 bytes) + audio data
+    uint32_t wav_size = 44 + audio_size;
+    uint8_t* wav = (uint8_t*)heap_caps_malloc(wav_size, MALLOC_CAP_SPIRAM);
+    if (!wav) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+        return ESP_FAIL;
+    }
+    
+    // WAV header
+    uint32_t sample_rate = 16000;
+    uint16_t bits_per_sample = 16;
+    uint16_t channels = 1;
+    uint32_t byte_rate = sample_rate * channels * bits_per_sample / 8;
+    uint16_t block_align = channels * bits_per_sample / 8;
+    
+    // RIFF header
+    memcpy(wav, "RIFF", 4);
+    uint32_t chunk_size = wav_size - 8;
+    wav[4] = chunk_size & 0xFF;
+    wav[5] = (chunk_size >> 8) & 0xFF;
+    wav[6] = (chunk_size >> 16) & 0xFF;
+    wav[7] = (chunk_size >> 24) & 0xFF;
+    memcpy(wav + 8, "WAVE", 4);
+    
+    // fmt chunk
+    memcpy(wav + 12, "fmt ", 4);
+    wav[16] = 16; wav[17] = 0; wav[18] = 0; wav[19] = 0;  // Subchunk size
+    wav[20] = 1; wav[21] = 0;  // PCM format
+    wav[22] = channels; wav[23] = 0;
+    wav[24] = sample_rate & 0xFF;
+    wav[25] = (sample_rate >> 8) & 0xFF;
+    wav[26] = (sample_rate >> 16) & 0xFF;
+    wav[27] = (sample_rate >> 24) & 0xFF;
+    wav[28] = byte_rate & 0xFF;
+    wav[29] = (byte_rate >> 8) & 0xFF;
+    wav[30] = (byte_rate >> 16) & 0xFF;
+    wav[31] = (byte_rate >> 24) & 0xFF;
+    wav[32] = block_align; wav[33] = 0;
+    wav[34] = bits_per_sample; wav[35] = 0;
+    
+    // data chunk
+    memcpy(wav + 36, "data", 4);
+    wav[40] = audio_size & 0xFF;
+    wav[41] = (audio_size >> 8) & 0xFF;
+    wav[42] = (audio_size >> 16) & 0xFF;
+    wav[43] = (audio_size >> 24) & 0xFF;
+    
+    // Copy audio data
+    memcpy(wav + 44, audio_data, audio_size);
+    
+    // Send response
+    httpd_resp_set_type(req, "audio/wav");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"recording.wav\"");
+    httpd_resp_send(req, (char*)wav, wav_size);
+    
+    heap_caps_free(wav);
+    return ESP_OK;
+}
+
 void web_admin_register(httpd_handle_t server) {
     httpd_uri_t admin = { .uri = "/admin", .method = HTTP_GET, .handler = admin_handler };
     httpd_uri_t status = { .uri = "/api/status", .method = HTTP_GET, .handler = status_handler };
     httpd_uri_t brightness = { .uri = "/api/brightness", .method = HTTP_GET, .handler = brightness_handler };
     httpd_uri_t clear = { .uri = "/api/clear-wifi", .method = HTTP_GET, .handler = clear_wifi_handler };
     httpd_uri_t screenshot = { .uri = "/api/screenshot", .method = HTTP_GET, .handler = screenshot_handler };
+    httpd_uri_t audio_start = { .uri = "/api/audio/start", .method = HTTP_GET, .handler = audio_start_handler };
+    httpd_uri_t audio_stop = { .uri = "/api/audio/stop", .method = HTTP_GET, .handler = audio_stop_handler };
+    httpd_uri_t audio_download = { .uri = "/api/audio/download", .method = HTTP_GET, .handler = audio_download_handler };
     
     httpd_register_uri_handler(server, &admin);
     httpd_register_uri_handler(server, &status);
     httpd_register_uri_handler(server, &brightness);
     httpd_register_uri_handler(server, &clear);
     httpd_register_uri_handler(server, &screenshot);
+    httpd_register_uri_handler(server, &audio_start);
+    httpd_register_uri_handler(server, &audio_stop);
+    httpd_register_uri_handler(server, &audio_download);
     
     Serial.println("Admin endpoints registered");
 }
