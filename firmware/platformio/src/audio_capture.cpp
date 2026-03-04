@@ -268,15 +268,13 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     playing = true;
     
     // Convert mono to stereo with volume scaling
-    // Input: 16-bit mono samples
-    // Output: 16-bit stereo (L, R, L, R, ...)
-    // Volume: Scale down to avoid clipping (30% of original)
-    const float volume = 0.3f;
+    // Input: 16-bit mono samples (little-endian)
+    // Output: 16-bit stereo interleaved (L, R, L, R, ...)
+    // Volume: 30% (divide by 3 using integer math)
     
-    // Use larger buffer to reduce underruns
-    const size_t SAMPLES_PER_CHUNK = 512;
-    size_t stereo_buf_size = SAMPLES_PER_CHUNK * 4;  // stereo 16-bit = 4 bytes per sample
-    int16_t* stereo_buf = (int16_t*)heap_caps_malloc(stereo_buf_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    // Allocate stereo buffer - 2x input size
+    size_t stereo_size = size * 2;
+    int16_t* stereo_buf = (int16_t*)heap_caps_malloc(stereo_size, MALLOC_CAP_SPIRAM);
     if (!stereo_buf) {
         Serial.println("Audio: Failed to allocate stereo buffer");
         i2s_channel_disable(tx_chan);
@@ -284,47 +282,42 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
         return false;
     }
     
-    // Zero the buffer to avoid any garbage
-    memset(stereo_buf, 0, stereo_buf_size);
-    
-    size_t bytes_written = 0;
+    // Convert entire buffer at once - mono to stereo with volume
     const int16_t* mono_samples = (const int16_t*)data;
     size_t total_mono_samples = size / 2;
-    size_t sample_idx = 0;
     
-    Serial.printf("Audio: Playing %u mono samples as stereo\n", total_mono_samples);
+    Serial.printf("Audio: Converting %u mono samples to stereo\n", total_mono_samples);
     
-    while (sample_idx < total_mono_samples && playing) {
-        // Fill stereo buffer with volume-adjusted samples
-        size_t samples_to_process = min((size_t)SAMPLES_PER_CHUNK, total_mono_samples - sample_idx);
+    for (size_t i = 0; i < total_mono_samples; i++) {
+        int16_t sample = mono_samples[i] / 3;  // 33% volume, integer math
+        stereo_buf[i * 2] = sample;      // Left
+        stereo_buf[i * 2 + 1] = sample;  // Right
+    }
+    
+    // Write all at once using the working stereo playback approach
+    const size_t CHUNK_SIZE = 2048;
+    size_t bytes_written = 0;
+    size_t offset = 0;
+    size_t total_stereo_samples = total_mono_samples * 2;
+    
+    while (offset < total_stereo_samples && playing) {
+        size_t samples_to_write = min((size_t)(CHUNK_SIZE / 2), total_stereo_samples - offset);
+        size_t bytes_to_write = samples_to_write * 2;
         
-        for (size_t i = 0; i < samples_to_process; i++) {
-            int16_t sample = (int16_t)(mono_samples[sample_idx + i] * volume);
-            stereo_buf[i * 2] = sample;      // Left
-            stereo_buf[i * 2 + 1] = sample;  // Right
-        }
-        
-        // Zero remaining buffer if partial chunk (prevents static from old data)
-        for (size_t i = samples_to_process; i < SAMPLES_PER_CHUNK; i++) {
-            stereo_buf[i * 2] = 0;
-            stereo_buf[i * 2 + 1] = 0;
-        }
-        
-        size_t stereo_bytes = samples_to_process * 4;  // 2 channels * 2 bytes
-        err = i2s_channel_write(tx_chan, stereo_buf, stereo_bytes, &bytes_written, pdMS_TO_TICKS(1000));
+        err = i2s_channel_write(tx_chan, &stereo_buf[offset], bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
         if (err == ESP_OK) {
-            sample_idx += samples_to_process;
+            offset += samples_to_write;
         } else {
-            Serial.printf("Audio: Write error at sample %u: %d\n", sample_idx, err);
+            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
             break;
         }
         
-        yield();  // Prevent watchdog issues
+        yield();
     }
     
     // Write silence at end to flush DMA buffers
-    memset(stereo_buf, 0, stereo_buf_size);
-    i2s_channel_write(tx_chan, stereo_buf, stereo_buf_size, &bytes_written, pdMS_TO_TICKS(100));
+    int16_t silence[512] = {0};
+    i2s_channel_write(tx_chan, silence, sizeof(silence), &bytes_written, pdMS_TO_TICKS(100));
     
     heap_caps_free(stereo_buf);
     
