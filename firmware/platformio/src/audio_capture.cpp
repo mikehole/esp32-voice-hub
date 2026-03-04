@@ -273,8 +273,10 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     // Volume: Scale down to avoid clipping (30% of original)
     const float volume = 0.3f;
     
-    size_t stereo_buf_size = 1024;  // Process 256 mono samples at a time
-    int16_t* stereo_buf = (int16_t*)malloc(stereo_buf_size);
+    // Use larger buffer to reduce underruns
+    const size_t SAMPLES_PER_CHUNK = 512;
+    size_t stereo_buf_size = SAMPLES_PER_CHUNK * 4;  // stereo 16-bit = 4 bytes per sample
+    int16_t* stereo_buf = (int16_t*)heap_caps_malloc(stereo_buf_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!stereo_buf) {
         Serial.println("Audio: Failed to allocate stereo buffer");
         i2s_channel_disable(tx_chan);
@@ -282,33 +284,49 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
         return false;
     }
     
+    // Zero the buffer to avoid any garbage
+    memset(stereo_buf, 0, stereo_buf_size);
+    
     size_t bytes_written = 0;
-    size_t offset = 0;
     const int16_t* mono_samples = (const int16_t*)data;
     size_t total_mono_samples = size / 2;
     size_t sample_idx = 0;
     
+    Serial.printf("Audio: Playing %u mono samples as stereo\n", total_mono_samples);
+    
     while (sample_idx < total_mono_samples && playing) {
         // Fill stereo buffer with volume-adjusted samples
-        size_t samples_to_process = min((size_t)256, total_mono_samples - sample_idx);
+        size_t samples_to_process = min((size_t)SAMPLES_PER_CHUNK, total_mono_samples - sample_idx);
+        
         for (size_t i = 0; i < samples_to_process; i++) {
             int16_t sample = (int16_t)(mono_samples[sample_idx + i] * volume);
             stereo_buf[i * 2] = sample;      // Left
             stereo_buf[i * 2 + 1] = sample;  // Right
         }
         
+        // Zero remaining buffer if partial chunk (prevents static from old data)
+        for (size_t i = samples_to_process; i < SAMPLES_PER_CHUNK; i++) {
+            stereo_buf[i * 2] = 0;
+            stereo_buf[i * 2 + 1] = 0;
+        }
+        
         size_t stereo_bytes = samples_to_process * 4;  // 2 channels * 2 bytes
         err = i2s_channel_write(tx_chan, stereo_buf, stereo_bytes, &bytes_written, pdMS_TO_TICKS(1000));
         if (err == ESP_OK) {
             sample_idx += samples_to_process;
-            offset = sample_idx * 2;
         } else {
             Serial.printf("Audio: Write error at sample %u: %d\n", sample_idx, err);
             break;
         }
+        
+        yield();  // Prevent watchdog issues
     }
     
-    free(stereo_buf);
+    // Write silence at end to flush DMA buffers
+    memset(stereo_buf, 0, stereo_buf_size);
+    i2s_channel_write(tx_chan, stereo_buf, stereo_buf_size, &bytes_written, pdMS_TO_TICKS(100));
+    
+    heap_caps_free(stereo_buf);
     
     i2s_channel_disable(tx_chan);
     playing = false;
