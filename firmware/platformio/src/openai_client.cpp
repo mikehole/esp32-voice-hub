@@ -107,6 +107,144 @@ static void build_wav_header(uint8_t* header, size_t audio_size) {
 
 // Transcription state
 static volatile bool transcribing = false;
+static volatile bool speaking = false;
+
+// OpenAI TTS endpoint
+static const char* TTS_URL = "api.openai.com";
+
+uint8_t* openai_tts(const char* text, size_t* out_size) {
+    *out_size = 0;
+    
+    if (!openai_has_api_key()) {
+        strcpy(last_error, "No API key configured");
+        return NULL;
+    }
+    
+    if (!text || strlen(text) == 0) {
+        strcpy(last_error, "Empty text");
+        return NULL;
+    }
+    
+    if (speaking) {
+        strcpy(last_error, "TTS already in progress");
+        return NULL;
+    }
+    
+    speaking = true;
+    Serial.printf("OpenAI TTS: Converting %u chars...\n", strlen(text));
+    
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(30);
+    
+    if (!client.connect(TTS_URL, 443)) {
+        strcpy(last_error, "TTS connection failed");
+        speaking = false;
+        return NULL;
+    }
+    
+    // Build JSON body - request PCM format for direct playback
+    String body = "{\"model\":\"tts-1\",\"input\":\"";
+    for (size_t i = 0; i < strlen(text); i++) {
+        char c = text[i];
+        if (c == '"') body += "\\\"";
+        else if (c == '\\') body += "\\\\";
+        else if (c == '\n') body += " ";
+        else if (c == '\r') continue;
+        else body += c;
+    }
+    body += "\",\"voice\":\"shimmer\",\"response_format\":\"pcm\"}";
+    
+    // Send request
+    client.print("POST /v1/audio/speech HTTP/1.1\r\n");
+    client.print("Host: api.openai.com\r\n");
+    client.print("Authorization: Bearer ");
+    client.print(api_key);
+    client.print("\r\n");
+    client.print("Content-Type: application/json\r\n");
+    client.print("Content-Length: ");
+    client.print(body.length());
+    client.print("\r\n");
+    client.print("Connection: close\r\n\r\n");
+    client.print(body);
+    
+    Serial.println("OpenAI TTS: Waiting for response...");
+    
+    // Wait for response headers
+    unsigned long start = millis();
+    while (!client.available() && millis() - start < 30000) {
+        delay(10);
+    }
+    
+    if (!client.available()) {
+        strcpy(last_error, "TTS response timeout");
+        client.stop();
+        speaking = false;
+        return NULL;
+    }
+    
+    // Read headers
+    int httpCode = 0;
+    int contentLength = 0;
+    while (client.available()) {
+        String line = client.readStringUntil('\n');
+        if (line.startsWith("HTTP/1.1")) {
+            httpCode = line.substring(9, 12).toInt();
+        }
+        if (line.startsWith("content-length:") || line.startsWith("Content-Length:")) {
+            contentLength = line.substring(16).toInt();
+        }
+        if (line == "\r") break;
+    }
+    
+    Serial.printf("OpenAI TTS: HTTP %d, Content-Length: %d\n", httpCode, contentLength);
+    
+    if (httpCode != 200) {
+        String error = client.readString();
+        snprintf(last_error, sizeof(last_error), "TTS HTTP %d: %s", httpCode, error.c_str());
+        client.stop();
+        speaking = false;
+        return NULL;
+    }
+    
+    // Allocate buffer in PSRAM for audio data
+    // PCM format is 24kHz 16-bit mono = 48KB/sec
+    size_t bufferSize = contentLength > 0 ? contentLength : 512 * 1024;  // 512KB max if unknown
+    uint8_t* audioBuffer = (uint8_t*)heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM);
+    if (!audioBuffer) {
+        strcpy(last_error, "Failed to allocate audio buffer");
+        client.stop();
+        speaking = false;
+        return NULL;
+    }
+    
+    // Read audio data
+    size_t totalRead = 0;
+    while ((client.available() || client.connected()) && totalRead < bufferSize) {
+        if (client.available()) {
+            int toRead = min((size_t)4096, bufferSize - totalRead);
+            int bytesRead = client.read(audioBuffer + totalRead, toRead);
+            if (bytesRead > 0) {
+                totalRead += bytesRead;
+            }
+        }
+        if (millis() - start > 60000) break;  // 60 second total timeout
+        yield();
+    }
+    
+    client.stop();
+    speaking = false;
+    
+    if (totalRead == 0) {
+        strcpy(last_error, "No audio data received");
+        heap_caps_free(audioBuffer);
+        return NULL;
+    }
+    
+    Serial.printf("OpenAI TTS: Received %u bytes of PCM audio\n", totalRead);
+    *out_size = totalRead;
+    return audioBuffer;
+}
 
 bool openai_is_transcribing() {
     return transcribing;

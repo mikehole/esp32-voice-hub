@@ -26,6 +26,12 @@ char* openai_transcribe(const uint8_t* audio_data, size_t audio_size);
 // Get last error message
 const char* openai_get_last_error();
 
+// Text-to-Speech using OpenAI TTS API
+// Returns audio data (caller must free) or NULL on error
+// out_size receives the audio data size
+// Audio is PCM 24kHz 16-bit mono
+uint8_t* openai_tts(const char* text, size_t* out_size);
+
 // OpenClaw integration
 void openclaw_set_endpoint(const char* url);  // e.g., "https://mikesdocker"
 void openclaw_set_token(const char* token);   // hooks.token for auth
