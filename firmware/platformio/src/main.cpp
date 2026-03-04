@@ -11,6 +11,7 @@
 #include "lcd_bl_pwm_bsp.h"
 #include "lcd_config.h"
 #include "images/minerva_img.h"
+#include "avatar.h"
 #include "bidi_switch_knob.h"
 #include "wifi_manager.h"
 #include "web_admin.h"
@@ -214,6 +215,9 @@ void create_radial_ui() {
     lv_obj_set_style_text_font(center_icon, &lv_font_montserrat_32, 0);
     lv_obj_center(center_icon);
     
+    // Initialize avatar system (for Minerva state images)
+    avatar_init(center_obj);
+    
     ui_initialized = true;
     
     // Apply initial selection
@@ -243,29 +247,18 @@ void update_selection() {
     
     // Update center content
     if (selected_wedge == 0) {
-        // Minerva - show avatar
-        lv_label_set_text(center_icon, "");  // Hide icon
-        // Check if avatar already exists
-        lv_obj_t* existing_avatar = lv_obj_get_child(center_obj, 0);
-        if (existing_avatar && existing_avatar != center_icon) {
-            // Avatar exists, ensure it's visible
-            lv_obj_clear_flag(existing_avatar, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            // Create avatar
-            lv_obj_t* avatar = lv_img_create(center_obj);
-            lv_img_set_src(avatar, &minerva_avatar);
-            lv_obj_center(avatar);
-            lv_obj_move_background(avatar);  // Put behind icon
+        // Minerva - show avatar, hide icon
+        lv_label_set_text(center_icon, "");
+        lv_obj_t* avatar_obj = avatar_get_obj();
+        if (avatar_obj) {
+            lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
         }
         lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
     } else {
-        // Other - show icon, hide avatar if exists
-        lv_obj_t* child = lv_obj_get_child(center_obj, 0);
-        while (child) {
-            if (child != center_icon) {
-                lv_obj_add_flag(child, LV_OBJ_FLAG_HIDDEN);
-            }
-            child = lv_obj_get_child(center_obj, lv_obj_get_index(child) + 1);
+        // Other - show icon, hide avatar
+        lv_obj_t* avatar_obj = avatar_get_obj();
+        if (avatar_obj) {
+            lv_obj_add_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
         }
         lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
         lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
@@ -374,7 +367,8 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     tts_result = NULL;
     tts_result_size = 0;
     
-    status_ring_show(STATE_THINKING);
+    // Show thinking avatar (no ring - avoids LVGL crash during background task)
+    avatar_set_state(STATE_THINKING);
     Serial.println("Processing voice command in background...");
     
     // Notify background task to start
@@ -387,7 +381,7 @@ void check_voice_processing() {
     
     if (voice_stage == 4) {
         // TTS ready - play it
-        status_ring_show(STATE_SPEAKING);
+        avatar_set_state(STATE_SPEAKING);
         lv_task_handler();
         Serial.printf("Playing TTS: %u bytes\n", tts_result_size);
         audio_play(tts_result, tts_result_size, 24000);
@@ -396,15 +390,15 @@ void check_voice_processing() {
         tts_result_size = 0;
         voice_stage = 0;
         voice_processing = false;
-        status_ring_hide();
+        avatar_set_state(STATE_IDLE);  // Return to idle
     } else if (voice_stage == -1) {
         // Error occurred
         Serial.println("Voice processing failed");
         voice_stage = 0;
         voice_processing = false;
-        status_ring_hide();
+        avatar_set_state(STATE_IDLE);  // Return to idle
     }
-    // Stages 1-3: still processing, keep animating
+    // Stages 1-3: still processing, avatar shows thinking
 }
 
 void check_touch() {
@@ -508,13 +502,13 @@ void setup() {
     
     create_radial_ui();
     
-    // Initialize status ring (after UI is created)
+    // Initialize status ring (after UI is created) - still used for recording
     status_ring_init(lv_scr_act());
     
-    // Show connecting indicator if not connected yet
+    // Show connecting avatar if not connected yet
     WiFiState wifi_state = wifi_manager_get_state();
     if (wifi_state != WIFI_STATE_CONNECTED) {
-        status_ring_show(STATE_CONNECTING);
+        avatar_set_state(STATE_CONNECTING);
         Serial.println("Waiting for WiFi connection...");
     }
     
@@ -570,39 +564,33 @@ void loop() {
         last_heap_check = millis();
     }
     
-    // Check WiFi state and update connecting indicator
+    // Check WiFi state and update avatar
     static WiFiState last_wifi_state = WIFI_STATE_IDLE;
     WiFiState wifi_state = wifi_manager_get_state();
     
     if (wifi_state != last_wifi_state) {
         if (wifi_state == WIFI_STATE_CONNECTED) {
-            // Just connected - hide connecting indicator
-            if (status_ring_get_state() == STATE_CONNECTING) {
-                status_ring_hide();
-                Serial.println("WiFi connected - ready!");
-            }
-        } else if (wifi_state == WIFI_STATE_CONNECTING && last_wifi_state == WIFI_STATE_CONNECTED) {
-            // Lost connection - show reconnecting
-            status_ring_show(STATE_CONNECTING);
-            Serial.println("WiFi reconnecting...");
+            // Just connected - show idle avatar
+            avatar_set_state(STATE_IDLE);
+            Serial.println("WiFi connected - ready!");
+        } else if (wifi_state == WIFI_STATE_CONNECTING) {
+            // Connecting - show zapped avatar!
+            avatar_set_state(STATE_CONNECTING);
+            Serial.println("WiFi connecting...");
         }
         last_wifi_state = wifi_state;
     }
     
-    // Only allow touch/encoder when connected (or connecting indicator not shown)
-    ProcessingState ring_state = status_ring_get_state();
-    if (ring_state != STATE_CONNECTING) {
+    // Only allow touch/encoder when connected
+    if (wifi_state == WIFI_STATE_CONNECTED) {
         check_touch();
         check_encoder();
     }
     
     wifi_manager_loop();
     
-    // Only update status ring when NOT doing background processing
-    // LVGL is not thread-safe - even mutexes don't fully protect it
-    if (!voice_processing) {
-        status_ring_update();
-    }
+    // Update status ring (only used for recording now)
+    status_ring_update();
     
     delay(10);
 }
