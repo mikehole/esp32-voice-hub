@@ -175,6 +175,7 @@ void status_ring_update() {
             // Progress shown on OUTER ring (visible past finger)
             unsigned long elapsed = now - start_time;
             int progress_angle = min(360UL, elapsed * 360 / 10000);
+            if (progress_angle < 10) progress_angle = 10;  // Minimum to avoid display crash
             
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
                 // Full circles, no spinning
