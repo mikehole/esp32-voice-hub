@@ -66,8 +66,10 @@ void avatar_set_state(ProcessingState state) {
             break;
             
         case STATE_RECORDING:
-            // Keep current avatar during recording (ring handles it)
-            return;
+            // Listening pose - hand cupped to ear
+            new_image = avatar_recording;
+            state_name = "recording (listening)";
+            break;
             
         default:
             return;

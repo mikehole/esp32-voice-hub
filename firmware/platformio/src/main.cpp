@@ -424,7 +424,8 @@ void check_touch() {
                 // Not recording - start
                 Serial.println("Tap - start recording");
                 if (audio_start_recording()) {
-                    status_ring_show(STATE_RECORDING);
+                    avatar_set_state(STATE_RECORDING);  // Listening pose
+                    status_ring_show(STATE_RECORDING);  // Red pulsing ring
                 }
             }
             was_touched = touched;
