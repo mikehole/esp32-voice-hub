@@ -287,6 +287,73 @@ bool is_center_touch(uint16_t x, uint16_t y) {
 }
 
 // Process voice command after recording stops
+// Background task for voice processing
+static TaskHandle_t voice_task_handle = NULL;
+static const uint8_t* pending_audio_data = NULL;
+static size_t pending_audio_size = 0;
+static volatile bool voice_processing = false;
+static uint8_t* tts_result = NULL;
+static size_t tts_result_size = 0;
+static volatile int voice_stage = 0;  // 0=idle, 1=transcribing, 2=thinking, 3=tts, 4=done, -1=error
+
+// Background task that runs API calls
+void voice_task(void* param) {
+    while (true) {
+        // Wait for work
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        
+        if (!pending_audio_data || pending_audio_size < 1000) {
+            voice_stage = -1;
+            voice_processing = false;
+            continue;
+        }
+        
+        voice_stage = 1;  // Transcribing
+        Serial.println("Background: Transcribing...");
+        
+        // Step 1: Transcribe with Whisper
+        char* transcript = openai_transcribe(pending_audio_data, pending_audio_size);
+        if (!transcript || strlen(transcript) == 0) {
+            Serial.printf("Background: Transcription failed: %s\n", openai_get_last_error());
+            if (transcript) free(transcript);
+            voice_stage = -1;
+            voice_processing = false;
+            continue;
+        }
+        
+        Serial.printf("Background: Transcript: '%s'\n", transcript);
+        voice_stage = 2;  // Thinking (OpenClaw)
+        
+        // Step 2: Send to OpenClaw
+        char* response = openclaw_send_with_history(transcript);
+        free(transcript);
+        
+        if (!response || strlen(response) == 0) {
+            Serial.printf("Background: OpenClaw failed: %s\n", openai_get_last_error());
+            voice_stage = -1;
+            voice_processing = false;
+            continue;
+        }
+        
+        Serial.printf("Background: Response: '%s'\n", response);
+        voice_stage = 3;  // TTS
+        
+        // Step 3: Convert to speech
+        tts_result = openai_tts(response, &tts_result_size);
+        free(response);
+        
+        if (!tts_result) {
+            Serial.printf("Background: TTS failed: %s\n", openai_get_last_error());
+            voice_stage = -1;
+            voice_processing = false;
+            continue;
+        }
+        
+        Serial.printf("Background: TTS ready: %u bytes\n", tts_result_size);
+        voice_stage = 4;  // Done - ready to play
+    }
+}
+
 void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     if (audio_size < 1000) {
         Serial.println("Recording too short, ignoring");
@@ -294,54 +361,50 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
         return;
     }
     
-    // Show thinking state (orange pulsing ring)
+    // Create background task if needed
+    if (!voice_task_handle) {
+        xTaskCreatePinnedToCore(voice_task, "voice", 16384, NULL, 1, &voice_task_handle, 0);
+    }
+    
+    // Start background processing
+    pending_audio_data = audio_data;
+    pending_audio_size = audio_size;
+    voice_processing = true;
+    voice_stage = 1;
+    tts_result = NULL;
+    tts_result_size = 0;
+    
     status_ring_show(STATE_THINKING);
-    lv_task_handler();
-    Serial.println("Processing voice command...");
+    Serial.println("Processing voice command in background...");
     
-    // Step 1: Transcribe with Whisper
-    char* transcript = openai_transcribe(audio_data, audio_size);
-    if (!transcript || strlen(transcript) == 0) {
-        Serial.printf("Transcription failed: %s\n", openai_get_last_error());
-        if (transcript) free(transcript);
+    // Notify background task to start
+    xTaskNotifyGive(voice_task_handle);
+}
+
+// Called from loop() to check voice processing status
+void check_voice_processing() {
+    if (!voice_processing) return;
+    
+    if (voice_stage == 4) {
+        // TTS ready - play it
+        status_ring_show(STATE_SPEAKING);
+        lv_task_handler();
+        Serial.printf("Playing TTS: %u bytes\n", tts_result_size);
+        audio_play(tts_result, tts_result_size, 24000);
+        heap_caps_free(tts_result);
+        tts_result = NULL;
+        tts_result_size = 0;
+        voice_stage = 0;
+        voice_processing = false;
         status_ring_hide();
-        return;
-    }
-    
-    Serial.printf("Transcript: '%s'\n", transcript);
-    
-    // Step 2: Send to OpenClaw with conversation history
-    char* response = openclaw_send_with_history(transcript);
-    free(transcript);
-    
-    if (!response || strlen(response) == 0) {
-        Serial.printf("OpenClaw failed: %s\n", openai_get_last_error());
+    } else if (voice_stage == -1) {
+        // Error occurred
+        Serial.println("Voice processing failed");
+        voice_stage = 0;
+        voice_processing = false;
         status_ring_hide();
-        return;
     }
-    
-    Serial.printf("Response: '%s'\n", response);
-    
-    // Step 3: Convert response to speech
-    size_t tts_size = 0;
-    uint8_t* tts_audio = openai_tts(response, &tts_size);
-    free(response);
-    
-    if (!tts_audio) {
-        Serial.printf("TTS failed: %s\n", openai_get_last_error());
-        status_ring_hide();
-        return;
-    }
-    
-    // Step 4: Show speaking state (green wiggling ring) and play
-    status_ring_show(STATE_SPEAKING);
-    lv_task_handler();
-    Serial.printf("Playing TTS: %u bytes\n", tts_size);
-    audio_play(tts_audio, tts_size, 24000);
-    heap_caps_free(tts_audio);
-    
-    // Return to idle
-    status_ring_hide();
+    // Stages 1-3: still processing, keep animating
 }
 
 void check_touch() {
@@ -488,8 +551,14 @@ void check_encoder() {
     }
 }
 
+// Forward declaration
+void check_voice_processing();
+
 void loop() {
     lv_timer_handler();
+    
+    // Check voice processing status (background task)
+    check_voice_processing();
     
     // Periodic heap check (every 10 seconds)
     static unsigned long last_heap_check = 0;
