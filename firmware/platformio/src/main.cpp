@@ -12,6 +12,7 @@
 #include "lcd_config.h"
 #include "images/minerva_img.h"
 #include "bidi_switch_knob.h"
+#include "wifi_manager.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -244,6 +245,10 @@ void setup() {
         Serial.println("Encoder init failed!");
     }
     
+    // Initialize WiFi manager
+    wifi_manager_init();
+    Serial.printf("WiFi: %s\n", wifi_manager_get_status());
+    
     create_radial_ui();
     
     Serial.println("Setup complete! Touch or rotate to select.");
@@ -268,5 +273,6 @@ void loop() {
     lv_timer_handler();
     check_touch();
     check_encoder();
+    wifi_manager_loop();
     delay(10);
 }
