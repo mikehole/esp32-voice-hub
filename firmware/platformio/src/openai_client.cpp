@@ -216,8 +216,8 @@ uint8_t* openai_tts(const char* text, size_t* out_size) {
     }
     
     // Allocate buffer in PSRAM for audio data
-    // PCM format is 24kHz 16-bit mono = 48KB/sec
-    size_t bufferSize = contentLength > 0 ? contentLength : 512 * 1024;  // 512KB max if unknown
+    // PCM format is 24kHz 16-bit mono = 48KB/sec, ~30 seconds max
+    size_t bufferSize = contentLength > 0 ? contentLength : 1536 * 1024;  // 1.5MB max if unknown
     uint8_t* audioBuffer = (uint8_t*)heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM);
     if (!audioBuffer) {
         strcpy(last_error, "Failed to allocate audio buffer");
