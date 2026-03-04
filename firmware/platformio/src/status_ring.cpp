@@ -192,17 +192,18 @@ void status_ring_update() {
         }
         
         case STATE_THINKING: {
-            // All rings pulse together, dramatic breathing effect
+            // Same as connecting but yellow - smooth continuous spinning
+            unsigned long elapsed = now - start_time;
+            int base_rotation = (elapsed / 8) % 360;  // ~45 degrees per second
+            
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
-                lv_arc_set_value(rings[i], 360);
-                lv_arc_set_rotation(rings[i], 270);
+                int arc_pos = (base_rotation + i * 40) % 360;  // Offset each ring
+                lv_arc_set_value(rings[i], 60 + i * 15);  // Different arc lengths
+                lv_arc_set_rotation(rings[i], 270 + arc_pos);
                 
-                // Staggered breathing - outer rings lag behind inner
-                // MORE DRAMATIC: 0-255 full range, faster pulse
-                float phase_offset = i * 0.6f;
-                float pulse = (sinf(animation_phase * 3 - phase_offset) + 1.0f) / 2.0f;
-                int opa = (int)(pulse * 255);  // Full 0-255 range!
-                if (opa < 30) opa = 30;  // Minimum visibility
+                // Staggered opacity pulse
+                float pulse = (sinf(animation_phase * 2 + i * 0.5f) + 1.0f) / 2.0f;
+                int opa = 150 + (int)(pulse * 105);
                 lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
             }
             break;
