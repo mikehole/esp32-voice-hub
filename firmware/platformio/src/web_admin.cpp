@@ -11,6 +11,7 @@
 #include "wifi_manager.h"
 #include "lvgl.h"
 #include "audio_capture.h"
+#include "openai_client.h"
 
 // Brightness callbacks
 static brightness_getter_t get_brightness = NULL;
@@ -61,6 +62,14 @@ static const char ADMIN_HTML[] PROGMEM =
 "<button onclick=\"downloadAudio()\">Download WAV</button>"
 "</div>"
 "<div class=\"section\">"
+"<h3>OpenAI</h3>"
+"<div id=\"openai\">Loading...</div>"
+"<input type=\"password\" id=\"apikey\" placeholder=\"sk-...\" style=\"width:100%;padding:8px;margin:5px 0;border-radius:5px;border:1px solid #2E86AB;background:#0A1929;color:#5DADE2\">"
+"<button onclick=\"saveKey()\">Save API Key</button>"
+"<button onclick=\"testKey()\">Test Transcription</button>"
+"<div id=\"testresult\"></div>"
+"</div>"
+"<div class=\"section\">"
 "<h3>WiFi</h3>"
 "<button class=\"danger\" onclick=\"clearWifi()\">Clear WiFi Credentials</button>"
 "</div>"
@@ -77,6 +86,7 @@ static const char ADMIN_HTML[] PROGMEM =
 "document.getElementById('status').innerHTML=h;"
 "document.getElementById('brightness').value=d.brightness;"
 "document.getElementById('bval').innerText=d.brightness;"
+"document.getElementById('openai').innerHTML='API Key: '+(d.openaiKey||'(not set)');"
 "});"
 "}"
 "function setBrightness(v){"
@@ -106,6 +116,20 @@ static const char ADMIN_HTML[] PROGMEM =
 "function downloadAudio(){"
 "window.location='/api/audio/download';"
 "}"
+"function saveKey(){"
+"var k=document.getElementById('apikey').value;"
+"if(!k){alert('Enter API key');return;}"
+"fetch('/api/openai/key?k='+encodeURIComponent(k)).then(r=>r.text()).then(t=>{"
+"document.getElementById('openai').innerText=t;"
+"document.getElementById('apikey').value='';"
+"});"
+"}"
+"function testKey(){"
+"document.getElementById('testresult').innerText='Transcribing last recording...';"
+"fetch('/api/openai/transcribe').then(r=>r.text()).then(t=>{"
+"document.getElementById('testresult').innerText=t;"
+"});"
+"}"
 "load();setInterval(load,5000);"
 "</script></body></html>";
 
@@ -132,13 +156,14 @@ static esp_err_t status_handler(httpd_req_t *req) {
     int brightness = get_brightness ? get_brightness() : 100;
     
     snprintf(json, sizeof(json),
-        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d}",
+        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\"}",
         wifi_manager_get_ip().c_str(),
         uptime,
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024,
         heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024,
         rssi,
-        brightness
+        brightness,
+        openai_get_api_key()
     );
     
     httpd_resp_set_type(req, "application/json");
@@ -358,6 +383,64 @@ static esp_err_t audio_download_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// OpenAI API key save
+static esp_err_t openai_key_handler(httpd_req_t *req) {
+    char query[256] = {0};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char key[128] = {0};
+        if (httpd_query_key_value(query, "k", key, sizeof(key)) == ESP_OK) {
+            // URL decode the key
+            char decoded[128] = {0};
+            int j = 0;
+            for (int i = 0; key[i] && j < (int)sizeof(decoded) - 1; i++) {
+                if (key[i] == '%' && key[i+1] && key[i+2]) {
+                    char hex[3] = {key[i+1], key[i+2], 0};
+                    decoded[j++] = (char)strtol(hex, NULL, 16);
+                    i += 2;
+                } else if (key[i] == '+') {
+                    decoded[j++] = ' ';
+                } else {
+                    decoded[j++] = key[i];
+                }
+            }
+            openai_set_api_key(decoded);
+            char resp[64];
+            snprintf(resp, sizeof(resp), "API Key saved: %s", openai_get_api_key());
+            httpd_resp_send(req, resp, strlen(resp));
+            return ESP_OK;
+        }
+    }
+    httpd_resp_send(req, "Missing key parameter", 21);
+    return ESP_OK;
+}
+
+// OpenAI transcription test
+static esp_err_t openai_transcribe_handler(httpd_req_t *req) {
+    if (!openai_has_api_key()) {
+        httpd_resp_send(req, "Error: No API key configured", 28);
+        return ESP_OK;
+    }
+    
+    size_t audio_size = 0;
+    const uint8_t* audio_data = audio_get_last_recording(&audio_size);
+    
+    if (!audio_data || audio_size == 0) {
+        httpd_resp_send(req, "Error: No recording available", 29);
+        return ESP_OK;
+    }
+    
+    char* transcript = openai_transcribe(audio_data, audio_size);
+    if (transcript) {
+        httpd_resp_send(req, transcript, strlen(transcript));
+        free(transcript);
+    } else {
+        char error[300];
+        snprintf(error, sizeof(error), "Error: %s", openai_get_last_error());
+        httpd_resp_send(req, error, strlen(error));
+    }
+    return ESP_OK;
+}
+
 void web_admin_register(httpd_handle_t server) {
     httpd_uri_t admin = { .uri = "/admin", .method = HTTP_GET, .handler = admin_handler };
     httpd_uri_t status = { .uri = "/api/status", .method = HTTP_GET, .handler = status_handler };
@@ -367,6 +450,8 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t audio_start = { .uri = "/api/audio/start", .method = HTTP_GET, .handler = audio_start_handler };
     httpd_uri_t audio_stop = { .uri = "/api/audio/stop", .method = HTTP_GET, .handler = audio_stop_handler };
     httpd_uri_t audio_download = { .uri = "/api/audio/download", .method = HTTP_GET, .handler = audio_download_handler };
+    httpd_uri_t openai_key = { .uri = "/api/openai/key", .method = HTTP_GET, .handler = openai_key_handler };
+    httpd_uri_t openai_transcribe = { .uri = "/api/openai/transcribe", .method = HTTP_GET, .handler = openai_transcribe_handler };
     
     esp_err_t err;
     err = httpd_register_uri_handler(server, &admin);
@@ -377,11 +462,11 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &clear);
     err = httpd_register_uri_handler(server, &screenshot);
     err = httpd_register_uri_handler(server, &audio_start);
-    Serial.printf("Admin: /api/audio/start registered: %d\n", err);
     err = httpd_register_uri_handler(server, &audio_stop);
-    Serial.printf("Admin: /api/audio/stop registered: %d\n", err);
     err = httpd_register_uri_handler(server, &audio_download);
-    Serial.printf("Admin: /api/audio/download registered: %d\n", err);
+    err = httpd_register_uri_handler(server, &openai_key);
+    err = httpd_register_uri_handler(server, &openai_transcribe);
+    Serial.printf("Admin: /api/openai/* registered: %d\n", err);
     
     Serial.println("Admin endpoints registered");
 }

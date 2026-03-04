@@ -15,6 +15,7 @@
 #include "wifi_manager.h"
 #include "web_admin.h"
 #include "audio_capture.h"
+#include "openai_client.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -538,6 +539,9 @@ void setup() {
     } else {
         Serial.println("Audio: Init failed!");
     }
+    
+    // Initialize OpenAI client
+    openai_init();
     
     create_radial_ui();
     

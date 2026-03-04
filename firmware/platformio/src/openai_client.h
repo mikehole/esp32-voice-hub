@@ -1,0 +1,26 @@
+/**
+ * OpenAI API Client
+ * Whisper transcription + Chat completions
+ */
+
+#ifndef OPENAI_CLIENT_H
+#define OPENAI_CLIENT_H
+
+#include <Arduino.h>
+
+// Initialize the OpenAI client
+void openai_init();
+
+// Set/get API key (stored in NVS)
+void openai_set_api_key(const char* key);
+bool openai_has_api_key();
+const char* openai_get_api_key();  // Returns masked version for display
+
+// Transcribe audio using Whisper API
+// Returns transcript text (caller must free) or NULL on error
+char* openai_transcribe(const uint8_t* audio_data, size_t audio_size);
+
+// Get last error message
+const char* openai_get_last_error();
+
+#endif // OPENAI_CLIENT_H
