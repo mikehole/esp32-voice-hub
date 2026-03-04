@@ -30,9 +30,9 @@ void status_ring_init(lv_obj_t* parent) {
     lv_arc_set_range(ring, 0, 360);
     lv_arc_set_value(ring, 360);
     
-    // Style
-    lv_obj_set_style_arc_width(ring, 8, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ring, 8, LV_PART_INDICATOR);
+    // Style - fixed width, we'll animate other properties
+    lv_obj_set_style_arc_width(ring, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ring, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(ring, COLOR_RING_BG, LV_PART_MAIN);
     lv_obj_set_style_arc_color(ring, COLOR_RECORDING, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(ring, true, LV_PART_INDICATOR);
@@ -59,11 +59,9 @@ void status_ring_show(ProcessingState state) {
             break;
         case STATE_THINKING:
             color = COLOR_THINKING;
-            lv_arc_set_value(ring, 360);  // Full circle
             break;
         case STATE_SPEAKING:
             color = COLOR_SPEAKING;
-            lv_arc_set_value(ring, 360);  // Full circle
             break;
         default:
             color = lv_color_hex(0x2E86AB);
@@ -71,7 +69,6 @@ void status_ring_show(ProcessingState state) {
     }
     
     lv_obj_set_style_arc_color(ring, color, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(ring, 8, LV_PART_INDICATOR);
     lv_arc_set_rotation(ring, 270);
     lv_arc_set_bg_angles(ring, 0, 360);
     
@@ -98,58 +95,53 @@ void status_ring_update() {
     animation_phase += 0.15f;
     if (animation_phase > 2 * M_PI) animation_phase -= 2 * M_PI;
     
-    // Debug every second
-    static unsigned long last_debug = 0;
-    if (now - last_debug > 1000) {
-        Serial.printf("Status ring: state=%d phase=%.2f\n", current_state, animation_phase);
-        last_debug = now;
-    }
-    
     switch (current_state) {
         case STATE_RECORDING: {
-            // Pulsing width based on audio level
+            // Fill arc over 10 seconds (this works!)
+            unsigned long elapsed = now - start_time;
+            int angle = min(360UL, elapsed * 360 / 10000);
+            lv_arc_set_value(ring, angle);
+            
+            // Pulse opacity based on audio level
             uint8_t level = audio_get_level();
             float factor = level / 100.0f * 4.0f;
             if (factor > 1.0f) factor = 1.0f;
-            
-            // Sine wave pulse + audio level
             float pulse = (sinf(animation_phase * 3) + 1.0f) / 2.0f;
-            int width = 6 + (int)(pulse * 4) + (int)(factor * 8);
-            lv_obj_set_style_arc_width(ring, width, LV_PART_INDICATOR);
-            lv_obj_set_style_arc_width(ring, width, LV_PART_MAIN);  // Both parts
-            
-            // Fill arc over 10 seconds
-            unsigned long elapsed = millis() - start_time;
-            int angle = min(360UL, elapsed * 360 / 10000);
-            lv_arc_set_value(ring, angle);
+            int opa = 180 + (int)(pulse * 50) + (int)(factor * 25);
+            if (opa > 255) opa = 255;
+            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
             break;
         }
         
         case STATE_THINKING: {
-            // Smooth pulsing glow
-            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;
-            int width = 5 + (int)(pulse * 10);
-            lv_obj_set_style_arc_width(ring, width, LV_PART_INDICATOR);
-            lv_obj_set_style_arc_width(ring, width, LV_PART_MAIN);  // Both parts
+            // Spinning arc segment (not full circle)
+            // Use angles directly for spinning effect
+            int arc_start = ((int)(animation_phase * 30)) % 360;
+            int arc_end = (arc_start + 90) % 360;  // 90 degree segment
             
-            // Rotate for spinning effect
-            int rotation = (int)(animation_phase * 50) % 360;
-            lv_arc_set_rotation(ring, 270 + rotation);
+            // Set as indicator angles
+            lv_arc_set_value(ring, 90);  // 90 degree arc
+            lv_arc_set_rotation(ring, 270 + arc_start);  // Rotate the whole arc
+            
+            // Pulse opacity
+            float pulse = (sinf(animation_phase * 2) + 1.0f) / 2.0f;
+            int opa = 150 + (int)(pulse * 105);
+            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
             break;
         }
         
         case STATE_SPEAKING: {
-            // Wiggle/bounce effect
+            // Full circle with wiggling opacity
+            lv_arc_set_value(ring, 360);
+            
+            // Fast wiggle on opacity
             float wiggle = sinf(animation_phase * 8);
-            float bounce = (sinf(animation_phase * 4) + 1.0f) / 2.0f;
+            int opa = 200 + (int)(wiggle * 55);
+            lv_obj_set_style_arc_opa(ring, opa, LV_PART_INDICATOR);
             
-            int width = 6 + (int)(bounce * 6);
-            lv_obj_set_style_arc_width(ring, width, LV_PART_INDICATOR);
-            lv_obj_set_style_arc_width(ring, width, LV_PART_MAIN);  // Both parts
-            
-            // Subtle rotation wiggle
-            int wiggle_rot = (int)(wiggle * 8);
-            lv_arc_set_rotation(ring, 270 + wiggle_rot);
+            // Subtle position wiggle via rotation
+            int rot_wiggle = (int)(sinf(animation_phase * 6) * 5);
+            lv_arc_set_rotation(ring, 270 + rot_wiggle);
             break;
         }
         
