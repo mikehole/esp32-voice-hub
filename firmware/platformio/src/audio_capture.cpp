@@ -267,14 +267,18 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     
     playing = true;
     
-    // Convert mono to stereo with volume scaling
+    // Convert mono to stereo first, then use the working stereo playback path
     // Input: 16-bit mono samples (little-endian)
     // Output: 16-bit stereo interleaved (L, R, L, R, ...)
-    // Volume: 30% (divide by 3 using integer math)
     
-    // Allocate stereo buffer - 2x input size
+    const int16_t* mono_samples = (const int16_t*)data;
+    size_t total_mono_samples = size / 2;
     size_t stereo_size = size * 2;
-    int16_t* stereo_buf = (int16_t*)heap_caps_malloc(stereo_size, MALLOC_CAP_SPIRAM);
+    
+    Serial.printf("Audio: Converting %u mono samples to stereo (%u bytes)\n", total_mono_samples, stereo_size);
+    
+    // Allocate stereo buffer in PSRAM
+    uint8_t* stereo_buf = (uint8_t*)heap_caps_malloc(stereo_size, MALLOC_CAP_SPIRAM);
     if (!stereo_buf) {
         Serial.println("Audio: Failed to allocate stereo buffer");
         i2s_channel_disable(tx_chan);
@@ -282,51 +286,22 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
         return false;
     }
     
-    // Convert entire buffer at once - mono to stereo with volume
-    const int16_t* mono_samples = (const int16_t*)data;
-    size_t total_mono_samples = size / 2;
-    
-    Serial.printf("Audio: Converting %u mono samples to stereo\n", total_mono_samples);
-    
+    // Convert mono to stereo (no volume adjustment here - let stereo path handle it)
+    int16_t* stereo_samples = (int16_t*)stereo_buf;
     for (size_t i = 0; i < total_mono_samples; i++) {
-        int16_t sample = mono_samples[i] / 3;  // 33% volume, integer math
-        stereo_buf[i * 2] = sample;      // Left
-        stereo_buf[i * 2 + 1] = sample;  // Right
+        stereo_samples[i * 2] = mono_samples[i];      // Left
+        stereo_samples[i * 2 + 1] = mono_samples[i];  // Right
     }
     
-    // Write all at once using the working stereo playback approach
-    const size_t CHUNK_SIZE = 2048;
-    size_t bytes_written = 0;
-    size_t offset = 0;
-    size_t total_stereo_samples = total_mono_samples * 2;
-    
-    while (offset < total_stereo_samples && playing) {
-        size_t samples_to_write = min((size_t)(CHUNK_SIZE / 2), total_stereo_samples - offset);
-        size_t bytes_to_write = samples_to_write * 2;
-        
-        err = i2s_channel_write(tx_chan, &stereo_buf[offset], bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
-        if (err == ESP_OK) {
-            offset += samples_to_write;
-        } else {
-            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
-            break;
-        }
-        
-        yield();
-    }
-    
-    // Write silence at end to flush DMA buffers
-    int16_t silence[512] = {0};
-    i2s_channel_write(tx_chan, silence, sizeof(silence), &bytes_written, pdMS_TO_TICKS(100));
-    
-    heap_caps_free(stereo_buf);
-    
-    // Disable channel when done to stop noise
+    // Disable channel (stereo playback will re-enable)
     i2s_channel_disable(tx_chan);
     playing = false;
     
-    Serial.printf("Audio: Playback complete (%u samples)\n", total_mono_samples);
-    return true;
+    // Use the working stereo playback function
+    bool result = audio_play_stereo(stereo_buf, stereo_size, sample_rate);
+    
+    heap_caps_free(stereo_buf);
+    return result;
 }
 
 // Play stereo audio directly (no conversion needed)
