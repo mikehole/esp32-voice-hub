@@ -3,23 +3,11 @@
  */
 
 #include "wifi_manager.h"
-
-// Use esp_wifi directly for better compatibility with pioarduino
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "nvs_flash.h"
-#include <string.h>
-
-// Arduino compatibility
 #include <Arduino.h>
-#include <Preferences.h>
-
-// Async web server
-#include <ESPAsyncWebServer.h>
-#include <DNSServer.h>
-
-// Include WiFi after Arduino
 #include <WiFi.h>
+#include <DNSServer.h>
+#include <Preferences.h>
+#include <ESPAsyncWebServer.h>
 
 // AP Configuration
 #define AP_SSID "Minerva-Setup"
