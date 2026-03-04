@@ -19,8 +19,18 @@ static float animation_phase = 0;
 static unsigned long start_time = 0;
 
 void status_ring_init(lv_obj_t* parent) {
+    if (!parent) {
+        Serial.println("Status ring: ERROR - null parent!");
+        return;
+    }
+    
     // Create arc that surrounds the avatar
     ring = lv_arc_create(parent);
+    if (!ring) {
+        Serial.println("Status ring: ERROR - failed to create arc!");
+        return;
+    }
+    Serial.println("Status ring: initialized");
     lv_obj_set_size(ring, 155, 155);  // Larger than 130px avatar
     lv_obj_center(ring);
     
@@ -44,7 +54,11 @@ void status_ring_init(lv_obj_t* parent) {
 }
 
 void status_ring_show(ProcessingState state) {
-    if (!ring) return;
+    if (!ring || !lv_obj_is_valid(ring)) {
+        Serial.println("Status ring: WARNING - ring not valid, cannot show");
+        return;
+    }
+    Serial.printf("Status ring: showing state %d\n", state);
     
     current_state = state;
     animation_phase = 0;
@@ -84,7 +98,9 @@ void status_ring_hide() {
 }
 
 void status_ring_update() {
-    if (current_state == STATE_IDLE || !ring) return;
+    // Safety: bail early if not active or ring doesn't exist
+    if (current_state == STATE_IDLE) return;
+    if (!ring || !lv_obj_is_valid(ring)) return;
     
     // Throttle updates to ~30fps
     static unsigned long last_update = 0;
