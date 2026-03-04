@@ -87,6 +87,9 @@ void set_brightness_value(int value) {
     Serial.printf("Brightness set to %d%% (duty: %d)\n", value, duty);
 }
 
+// Forward declarations
+void update_selection();
+
 // Encoder callbacks
 static void knob_left_cb(void *arg, void *data) {
     knob_left_flag = true;
