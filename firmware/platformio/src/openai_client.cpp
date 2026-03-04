@@ -13,7 +13,7 @@ static const char* PREF_NAMESPACE = "openai";
 static const char* PREF_KEY = "api_key";
 
 static Preferences prefs;
-static char api_key[128] = {0};
+static char api_key[256] = {0};  // OpenAI project keys can be ~180 chars
 static char last_error[256] = {0};
 
 // OpenAI API endpoint
