@@ -528,6 +528,45 @@ static esp_err_t openclaw_token_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// TTS download endpoint - get raw PCM from OpenAI for debugging
+static esp_err_t tts_download_handler(httpd_req_t *req) {
+    char text[1024] = {0};
+    
+    int content_len = req->content_len;
+    if (content_len <= 0 || content_len >= (int)sizeof(text)) {
+        httpd_resp_send(req, "Text too long (max 1023 chars)", 30);
+        return ESP_OK;
+    }
+    
+    int received = httpd_req_recv(req, text, content_len);
+    if (received != content_len) {
+        httpd_resp_send(req, "Failed to receive text", 22);
+        return ESP_OK;
+    }
+    text[received] = '\0';
+    
+    Serial.printf("TTS Download: '%s'\n", text);
+    
+    // Get TTS audio
+    size_t audio_size = 0;
+    uint8_t* audio_data = openai_tts(text, &audio_size);
+    
+    if (!audio_data) {
+        char error[300];
+        snprintf(error, sizeof(error), "TTS error: %s", openai_get_last_error());
+        httpd_resp_send(req, error, strlen(error));
+        return ESP_OK;
+    }
+    
+    // Send raw PCM back
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"tts.pcm\"");
+    httpd_resp_send(req, (const char*)audio_data, audio_size);
+    
+    heap_caps_free(audio_data);
+    return ESP_OK;
+}
+
 // Speak endpoint - TTS and play audio
 static esp_err_t speak_handler(httpd_req_t *req) {
     char text[1024] = {0};
@@ -720,6 +759,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t oc_token = { .uri = "/api/openclaw/token", .method = HTTP_POST, .handler = openclaw_token_handler };
     httpd_uri_t oc_ask = { .uri = "/api/openclaw/ask", .method = HTTP_GET, .handler = openclaw_ask_handler };
     httpd_uri_t speak = { .uri = "/api/speak", .method = HTTP_POST, .handler = speak_handler };
+    httpd_uri_t tts_download = { .uri = "/api/tts", .method = HTTP_POST, .handler = tts_download_handler };
     httpd_uri_t play = { .uri = "/api/play", .method = HTTP_POST, .handler = play_handler };
     
     esp_err_t err;
@@ -739,6 +779,7 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &oc_token);
     err = httpd_register_uri_handler(server, &oc_ask);
     err = httpd_register_uri_handler(server, &speak);
+    err = httpd_register_uri_handler(server, &tts_download);
     err = httpd_register_uri_handler(server, &play);
     Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/play registered: %d\n", err);
     
