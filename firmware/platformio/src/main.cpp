@@ -505,10 +505,11 @@ void setup() {
     // Initialize status ring (after UI is created) - still used for recording
     status_ring_init(lv_scr_act());
     
-    // Show connecting avatar if not connected yet
+    // Show connecting avatar + ring if not connected yet
     WiFiState wifi_state = wifi_manager_get_state();
     if (wifi_state != WIFI_STATE_CONNECTED) {
         avatar_set_state(STATE_CONNECTING);
+        status_ring_show(STATE_CONNECTING);
         Serial.println("Waiting for WiFi connection...");
     }
     
@@ -564,18 +565,20 @@ void loop() {
         last_heap_check = millis();
     }
     
-    // Check WiFi state and update avatar
+    // Check WiFi state and update avatar + ring
     static WiFiState last_wifi_state = WIFI_STATE_IDLE;
     WiFiState wifi_state = wifi_manager_get_state();
     
     if (wifi_state != last_wifi_state) {
         if (wifi_state == WIFI_STATE_CONNECTED) {
-            // Just connected - show idle avatar
+            // Just connected - show idle avatar, hide ring
             avatar_set_state(STATE_IDLE);
+            status_ring_hide();
             Serial.println("WiFi connected - ready!");
         } else if (wifi_state == WIFI_STATE_CONNECTING) {
-            // Connecting - show zapped avatar!
+            // Connecting - show zapped avatar WITH spinning ring!
             avatar_set_state(STATE_CONNECTING);
+            status_ring_show(STATE_CONNECTING);
             Serial.println("WiFi connecting...");
         }
         last_wifi_state = wifi_state;
