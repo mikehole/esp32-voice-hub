@@ -189,15 +189,17 @@ void status_ring_update() {
         }
         
         case STATE_THINKING: {
-            // All rings pulse together, breathing effect
+            // All rings pulse together, dramatic breathing effect
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
                 lv_arc_set_value(rings[i], 360);
                 lv_arc_set_rotation(rings[i], 270);
                 
                 // Staggered breathing - outer rings lag behind inner
-                float phase_offset = i * 0.4f;
-                float pulse = (sinf(animation_phase * 2 - phase_offset) + 1.0f) / 2.0f;
-                int opa = 60 + (int)(pulse * 195);  // 60-255 range
+                // MORE DRAMATIC: 0-255 full range, faster pulse
+                float phase_offset = i * 0.6f;
+                float pulse = (sinf(animation_phase * 3 - phase_offset) + 1.0f) / 2.0f;
+                int opa = (int)(pulse * 255);  // Full 0-255 range!
+                if (opa < 30) opa = 30;  // Minimum visibility
                 lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
             }
             break;
@@ -205,17 +207,19 @@ void status_ring_update() {
         
         case STATE_SPEAKING: {
             // Ripple outward effect - rings pulse in sequence
+            // MORE DRAMATIC: full opacity range, faster, bigger phase offset
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
                 lv_arc_set_value(rings[i], 360);
                 
                 // Each ring pulses at different phase (ripple outward)
-                float phase_offset = i * 1.2f;  // Larger offset = more obvious ripple
-                float pulse = (sinf(animation_phase * 4 - phase_offset) + 1.0f) / 2.0f;
-                int opa = 80 + (int)(pulse * 175);
+                float phase_offset = i * 1.5f;  // Bigger offset = more obvious ripple
+                float pulse = (sinf(animation_phase * 5 - phase_offset) + 1.0f) / 2.0f;
+                int opa = (int)(pulse * 255);  // Full 0-255 range
+                if (opa < 40) opa = 40;  // Minimum visibility
                 lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
                 
-                // Subtle rotation wiggle
-                int wiggle = (int)(sinf(animation_phase * 6 - phase_offset) * 3);
+                // More obvious rotation wiggle
+                int wiggle = (int)(sinf(animation_phase * 6 - phase_offset) * 8);
                 lv_arc_set_rotation(rings[i], 270 + wiggle);
             }
             break;

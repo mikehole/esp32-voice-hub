@@ -11,6 +11,8 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lvgl.h"
+#include "status_ring.h"
 
 static const char* TAG = "audio";
 
@@ -358,6 +360,14 @@ bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
         } else {
             Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
             break;
+        }
+        
+        // Update UI during playback (every ~100ms worth of samples)
+        static size_t last_ui_update = 0;
+        if (offset - last_ui_update > sample_rate / 10) {  // ~100ms
+            lv_timer_handler();
+            status_ring_update();
+            last_ui_update = offset;
         }
         
         yield();
