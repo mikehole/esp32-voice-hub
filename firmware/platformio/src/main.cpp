@@ -277,6 +277,15 @@ void speak_notification(const char* text) {
     
     Serial.printf("Speaking notification: '%s'\n", text);
     
+    // Stop any playing audio (attention chime) and wait for it to finish
+    audio_stop_playback();
+    while (audio_is_playing()) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    // Small pause after chime stops so speech doesn't feel rushed
+    vTaskDelay(pdMS_TO_TICKS(200));
+    
     // Show speaking state
     avatar_set_state(STATE_SPEAKING);
     status_ring_show(STATE_SPEAKING);
