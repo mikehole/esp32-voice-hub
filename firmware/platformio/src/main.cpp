@@ -44,7 +44,7 @@
 // Wedge labels and icons
 const char* wedge_labels[] = {
     "Minerva", "Music", "Home", "Weather",
-    "News", "Timer", "Lights", "Settings"
+    "News", "Timer", "Zoom", "Settings"
 };
 
 const char* wedge_icons[] = {
@@ -54,7 +54,7 @@ const char* wedge_icons[] = {
     LV_SYMBOL_EYE_OPEN,  // Weather (eye = looking outside)
     LV_SYMBOL_LIST,      // News
     LV_SYMBOL_BELL,      // Timer
-    LV_SYMBOL_CHARGE,    // Lights (power/energy)
+    LV_SYMBOL_VIDEO,     // Zoom (video call)
     LV_SYMBOL_SETTINGS   // Settings
 };
 
