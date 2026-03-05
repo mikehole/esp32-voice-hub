@@ -283,8 +283,11 @@ void speak_notification(const char* text) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     
+    // Flush the I2S TX buffers to clear any remaining chime audio
+    audio_flush_tx();
+    
     // Small pause after chime stops so speech doesn't feel rushed
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(150));
     
     // Show speaking state
     avatar_set_state(STATE_SPEAKING);

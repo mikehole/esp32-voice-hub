@@ -396,6 +396,22 @@ void audio_stop_playback() {
     }
 }
 
+// Flush I2S TX buffers by writing silence
+void audio_flush_tx() {
+    if (!tx_chan) return;
+    
+    // Write a small buffer of silence to flush any remaining audio
+    static uint8_t silence[1024] = {0};  // All zeros = silence
+    size_t bytes_written = 0;
+    
+    // Enable channel briefly to flush
+    i2s_channel_enable(tx_chan);
+    i2s_channel_write(tx_chan, silence, sizeof(silence), &bytes_written, pdMS_TO_TICKS(50));
+    i2s_channel_disable(tx_chan);
+    
+    Serial.println("Audio: TX buffers flushed");
+}
+
 uint8_t audio_get_level() {
     return current_audio_level;
 }
