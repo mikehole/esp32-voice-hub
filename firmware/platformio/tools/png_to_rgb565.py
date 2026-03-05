@@ -7,7 +7,7 @@ import sys
 from PIL import Image
 
 def png_to_rgb565(input_path, var_name):
-    """Convert PNG to RGB565 C array"""
+    """Convert PNG to RGB565 C array (big-endian for ESP32 LVGL)"""
     img = Image.open(input_path).convert('RGB')
     width, height = img.size
     
@@ -17,6 +17,8 @@ def png_to_rgb565(input_path, var_name):
             r, g, b = img.getpixel((x, y))
             # Convert to RGB565
             rgb565 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+            # Swap bytes for big-endian (ESP32 LVGL expects this)
+            rgb565 = ((rgb565 & 0xFF) << 8) | ((rgb565 >> 8) & 0xFF)
             pixels.append(rgb565)
     
     # Output C array
