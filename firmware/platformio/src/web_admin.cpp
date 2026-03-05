@@ -659,6 +659,79 @@ static esp_err_t notify_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Notify with audio - Queue pre-loaded audio, show notification avatar, wait for tap
+// POST body = raw PCM audio data (mono 16-bit signed)
+// Query params: rate=SAMPLERATE (default 24000), text=DisplayText (optional)
+static esp_err_t notify_audio_handler(httpd_req_t *req) {
+    // Parse query params
+    char query[256] = {0};
+    uint32_t sample_rate = 24000;
+    char display_text[256] = {0};
+    
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char param[64];
+        if (httpd_query_key_value(query, "rate", param, sizeof(param)) == ESP_OK) {
+            sample_rate = atoi(param);
+        }
+        if (httpd_query_key_value(query, "text", display_text, sizeof(display_text)) != ESP_OK) {
+            display_text[0] = '\0';
+        }
+    }
+    
+    int content_len = req->content_len;
+    if (content_len <= 0) {
+        httpd_resp_send(req, "No audio data", 13);
+        return ESP_OK;
+    }
+    
+    if (content_len > NOTIFICATION_MAX_AUDIO_SIZE) {
+        char err[64];
+        snprintf(err, sizeof(err), "Audio too large (max %d bytes)", NOTIFICATION_MAX_AUDIO_SIZE);
+        httpd_resp_send(req, err, strlen(err));
+        return ESP_OK;
+    }
+    
+    Serial.printf("NotifyAudio: Receiving %d bytes @ %u Hz\n", content_len, sample_rate);
+    
+    // Allocate buffer in PSRAM for receiving
+    uint8_t* audio_data = (uint8_t*)heap_caps_malloc(content_len, MALLOC_CAP_SPIRAM);
+    if (!audio_data) {
+        httpd_resp_send(req, "Failed to allocate buffer", 25);
+        return ESP_OK;
+    }
+    
+    // Receive audio data
+    int total = 0;
+    while (total < content_len) {
+        int received = httpd_req_recv(req, (char*)(audio_data + total), content_len - total);
+        if (received <= 0) {
+            heap_caps_free(audio_data);
+            httpd_resp_send(req, "Failed to receive data", 22);
+            return ESP_OK;
+        }
+        total += received;
+    }
+    
+    // Queue the notification with audio
+    if (notification_queue_audio(audio_data, content_len, sample_rate, 
+                                  display_text[0] ? display_text : NULL)) {
+        // Show notification avatar and ring
+        avatar_set_state(STATE_NOTIFICATION);
+        status_ring_show(STATE_NOTIFICATION);
+        
+        heap_caps_free(audio_data);  // notification_queue_audio made a copy
+        
+        char resp[64];
+        snprintf(resp, sizeof(resp), "Audio notification queued (%d bytes)", content_len);
+        httpd_resp_send(req, resp, strlen(resp));
+    } else {
+        heap_caps_free(audio_data);
+        httpd_resp_send(req, "Failed to queue notification", 28);
+    }
+    
+    return ESP_OK;
+}
+
 // Speak endpoint - TTS and play audio (no AI, just speaks text directly)
 static esp_err_t speak_handler(httpd_req_t *req) {
     char text[1024] = {0};
@@ -861,6 +934,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t chat = { .uri = "/api/chat", .method = HTTP_POST, .handler = chat_handler };
     httpd_uri_t speak = { .uri = "/api/speak", .method = HTTP_POST, .handler = speak_handler };
     httpd_uri_t notify = { .uri = "/api/notify", .method = HTTP_POST, .handler = notify_handler };
+    httpd_uri_t notify_audio = { .uri = "/api/notify-audio", .method = HTTP_POST, .handler = notify_audio_handler };
     httpd_uri_t tts_download = { .uri = "/api/tts", .method = HTTP_POST, .handler = tts_download_handler };
     httpd_uri_t play = { .uri = "/api/play", .method = HTTP_POST, .handler = play_handler };
     
@@ -884,9 +958,10 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &chat);
     err = httpd_register_uri_handler(server, &speak);
     err = httpd_register_uri_handler(server, &notify);
+    err = httpd_register_uri_handler(server, &notify_audio);
     err = httpd_register_uri_handler(server, &tts_download);
     err = httpd_register_uri_handler(server, &play);
-    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/notify + /api/play registered: %d\n", err);
+    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/notify + /api/notify-audio + /api/play registered: %d\n", err);
     
     Serial.println("Admin endpoints registered");
 }

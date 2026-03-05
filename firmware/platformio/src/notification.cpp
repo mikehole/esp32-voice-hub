@@ -5,18 +5,27 @@
 #include "notification.h"
 #include "attention_sound.h"
 #include "audio_capture.h"
+#include "esp_heap_caps.h"
 #include <Arduino.h>
 
 // Notification state
 static char notification_text[NOTIFICATION_MAX_LEN] = {0};
-static bool has_notification = false;
+static NotifyType notify_type = NOTIFY_NONE;
 static uint32_t last_sound_time = 0;
 static const uint32_t SOUND_INTERVAL_MS = 3000;  // Play sound every 3 seconds
 
+// Audio notification state
+static uint8_t* notification_audio = NULL;
+static size_t notification_audio_size = 0;
+static uint32_t notification_audio_rate = 24000;
+
 void notification_init() {
     notification_text[0] = '\0';
-    has_notification = false;
+    notify_type = NOTIFY_NONE;
     last_sound_time = 0;
+    notification_audio = NULL;
+    notification_audio_size = 0;
+    notification_audio_rate = 24000;
     Serial.println("Notification: initialized");
 }
 
@@ -31,37 +40,119 @@ bool notification_queue(const char* text) {
         return false;
     }
     
+    // Clear any existing audio notification
+    if (notification_audio) {
+        heap_caps_free(notification_audio);
+        notification_audio = NULL;
+        notification_audio_size = 0;
+    }
+    
     // Store notification text
     strncpy(notification_text, text, NOTIFICATION_MAX_LEN - 1);
     notification_text[NOTIFICATION_MAX_LEN - 1] = '\0';
-    has_notification = true;
+    notify_type = NOTIFY_TEXT;
     last_sound_time = 0;  // Play sound immediately
     
-    Serial.printf("Notification: queued '%s'\n", notification_text);
+    Serial.printf("Notification: queued text '%s'\n", notification_text);
+    return true;
+}
+
+bool notification_queue_audio(const uint8_t* audio_data, size_t audio_size, 
+                              uint32_t sample_rate, const char* display_text) {
+    if (!audio_data || audio_size == 0) {
+        Serial.println("Notification: no audio data");
+        return false;
+    }
+    
+    if (audio_size > NOTIFICATION_MAX_AUDIO_SIZE) {
+        Serial.printf("Notification: audio too large (%u > %u)\n", 
+                      audio_size, NOTIFICATION_MAX_AUDIO_SIZE);
+        return false;
+    }
+    
+    // Clear any existing audio
+    if (notification_audio) {
+        heap_caps_free(notification_audio);
+        notification_audio = NULL;
+    }
+    
+    // Allocate buffer in PSRAM
+    notification_audio = (uint8_t*)heap_caps_malloc(audio_size, MALLOC_CAP_SPIRAM);
+    if (!notification_audio) {
+        Serial.println("Notification: failed to allocate audio buffer");
+        return false;
+    }
+    
+    // Copy audio data
+    memcpy(notification_audio, audio_data, audio_size);
+    notification_audio_size = audio_size;
+    notification_audio_rate = sample_rate;
+    
+    // Store display text (optional)
+    if (display_text && strlen(display_text) < NOTIFICATION_MAX_LEN) {
+        strncpy(notification_text, display_text, NOTIFICATION_MAX_LEN - 1);
+        notification_text[NOTIFICATION_MAX_LEN - 1] = '\0';
+    } else {
+        notification_text[0] = '\0';
+    }
+    
+    notify_type = NOTIFY_AUDIO;
+    last_sound_time = 0;  // Play sound immediately
+    
+    Serial.printf("Notification: queued audio (%u bytes @ %u Hz)\n", 
+                  audio_size, sample_rate);
     return true;
 }
 
 bool notification_pending() {
-    return has_notification;
+    return notify_type != NOTIFY_NONE;
+}
+
+NotifyType notification_get_type() {
+    return notify_type;
 }
 
 const char* notification_get_text() {
     return notification_text;
 }
 
+const uint8_t* notification_get_audio(size_t* out_size, uint32_t* out_sample_rate) {
+    if (notify_type != NOTIFY_AUDIO || !notification_audio) {
+        if (out_size) *out_size = 0;
+        if (out_sample_rate) *out_sample_rate = 0;
+        return NULL;
+    }
+    if (out_size) *out_size = notification_audio_size;
+    if (out_sample_rate) *out_sample_rate = notification_audio_rate;
+    return notification_audio;
+}
+
 const char* notification_acknowledge() {
-    if (!has_notification) {
+    if (notify_type == NOTIFY_NONE) {
         return NULL;
     }
     
-    has_notification = false;
-    Serial.printf("Notification: acknowledged '%s'\n", notification_text);
-    return notification_text;
+    NotifyType type = notify_type;
+    notify_type = NOTIFY_NONE;
+    
+    if (type == NOTIFY_TEXT) {
+        Serial.printf("Notification: acknowledged text '%s'\n", notification_text);
+        return notification_text;
+    } else {
+        Serial.printf("Notification: acknowledged audio (%u bytes)\n", notification_audio_size);
+        // Don't free audio yet - caller will play it
+        return NULL;
+    }
 }
 
 void notification_cancel() {
-    has_notification = false;
+    notify_type = NOTIFY_NONE;
     notification_text[0] = '\0';
+    if (notification_audio) {
+        heap_caps_free(notification_audio);
+        notification_audio = NULL;
+        notification_audio_size = 0;
+    }
     Serial.println("Notification: cancelled");
 }
 
@@ -95,7 +186,7 @@ void notification_play_attention() {
 }
 
 void notification_update() {
-    if (!has_notification) {
+    if (notify_type == NOTIFY_NONE) {
         return;
     }
     

@@ -448,10 +448,44 @@ void check_touch() {
     if (notification_pending() && ring_state == STATE_NOTIFICATION) {
         if (touched && !was_touched && is_center_touch(x, y)) {
             Serial.println("Tap - acknowledge notification");
-            const char* text = notification_acknowledge();
-            if (text) {
-                // Speak the notification
-                speak_notification(text);
+            
+            NotifyType type = notification_get_type();
+            
+            if (type == NOTIFY_AUDIO) {
+                // Pre-loaded audio - play directly
+                size_t audio_size = 0;
+                uint32_t sample_rate = 0;
+                const uint8_t* audio = notification_get_audio(&audio_size, &sample_rate);
+                
+                notification_acknowledge();  // Clear the notification
+                
+                if (audio && audio_size > 0) {
+                    // Stop attention sound and wait
+                    audio_stop_playback();
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    
+                    // Show speaking state
+                    avatar_set_state(STATE_SPEAKING);
+                    status_ring_show(STATE_SPEAKING);
+                    
+                    Serial.printf("Playing notification audio: %u bytes @ %u Hz\n", audio_size, sample_rate);
+                    audio_play(audio, audio_size, sample_rate);
+                    
+                    // Wait for playback
+                    while (audio_is_playing()) {
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                    }
+                    
+                    // Return to idle
+                    status_ring_hide();
+                    avatar_set_state(STATE_IDLE);
+                }
+            } else {
+                // Text notification - do TTS
+                const char* text = notification_acknowledge();
+                if (text) {
+                    speak_notification(text);
+                }
             }
             was_touched = touched;
             return;
