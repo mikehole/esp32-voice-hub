@@ -1,6 +1,6 @@
 # ESP32 Voice Hub
 
-A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring expressive avatar states, radial wedge menu UI, and integration with OpenClaw AI.
+A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — featuring expressive avatar states, radial wedge menu UI, and integration with any OpenAI-compatible API (OpenClaw, OpenAI, Ollama, LM Studio, OpenRouter, etc.).
 
 <p align="center">
   <img src="assets/product-hero.png" alt="ESP32 Voice Hub" width="500"/>
