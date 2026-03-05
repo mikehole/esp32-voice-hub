@@ -37,9 +37,6 @@ bool audio_is_playing();
 // Stop playback
 void audio_stop_playback();
 
-// Flush TX buffers (write silence to clear DMA buffers)
-void audio_flush_tx();
-
 // Get audio level (0-100) for visualization
 uint8_t audio_get_level();
 

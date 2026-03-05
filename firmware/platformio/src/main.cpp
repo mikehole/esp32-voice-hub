@@ -277,17 +277,12 @@ void speak_notification(const char* text) {
     
     Serial.printf("Speaking notification: '%s'\n", text);
     
-    // Stop any playing audio (attention chime) and wait for it to finish
+    // Stop any playing audio (attention chime) and wait for it to fully stop
     audio_stop_playback();
-    while (audio_is_playing()) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
     
-    // Flush the I2S TX buffers to clear any remaining chime audio
-    audio_flush_tx();
-    
-    // Small pause after chime stops so speech doesn't feel rushed
-    vTaskDelay(pdMS_TO_TICKS(150));
+    // Wait longer for audio hardware to fully settle
+    // The I2S DMA buffers need time to drain
+    vTaskDelay(pdMS_TO_TICKS(500));
     
     // Show speaking state
     avatar_set_state(STATE_SPEAKING);

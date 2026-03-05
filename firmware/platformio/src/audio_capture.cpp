@@ -392,36 +392,8 @@ bool audio_is_playing() {
 void audio_stop_playback() {
     if (playing) {
         playing = false;
-        // Give the playback loop time to notice and exit cleanly
-        vTaskDelay(pdMS_TO_TICKS(50));
         i2s_channel_disable(tx_chan);
     }
-}
-
-// Flush I2S TX buffers by writing silence
-void audio_flush_tx() {
-    if (!tx_chan) return;
-    
-    // Write multiple chunks of silence to fully flush DMA buffers
-    // DMA buffer is typically 6 descriptors * 240 frames * 4 bytes = ~5760 bytes
-    // Write more to be safe
-    static uint8_t silence[2048] = {0};  // All zeros = silence
-    size_t bytes_written = 0;
-    
-    // Enable channel briefly to flush
-    esp_err_t err = i2s_channel_enable(tx_chan);
-    if (err != ESP_OK) {
-        Serial.printf("Audio: Failed to enable for flush: %d\n", err);
-        return;
-    }
-    
-    // Write several chunks of silence to clear all DMA buffers
-    for (int i = 0; i < 4; i++) {
-        i2s_channel_write(tx_chan, silence, sizeof(silence), &bytes_written, pdMS_TO_TICKS(50));
-    }
-    
-    i2s_channel_disable(tx_chan);
-    Serial.println("Audio: TX buffers flushed with 8KB silence");
 }
 
 uint8_t audio_get_level() {
