@@ -4,10 +4,7 @@
 
 #include "menu_config.h"
 #include "avatar_images.h"
-
-// Forward declare external avatars (to be added)
-// extern const uint16_t avatar_music[];
-// extern const uint16_t avatar_zoom[];
+#include "avatar_menu_images.h"
 
 //=============================================================================
 // MENU DEFINITIONS
@@ -20,11 +17,11 @@ static const Menu menu_main = {
     .items = {
         {"🎤", "Minerva",  ACTION_VOICE,   0},
         {"🎵", "Music",    ACTION_SUBMENU, MENU_MUSIC},
-        {"📹", "Zoom",     ACTION_SUBMENU, MENU_ZOOM},
+        {"🏠", "Home",     ACTION_NONE,    0},  // TODO: Home Assistant
         {"☀️", "Weather",  ACTION_NONE,    0},  // TODO
-        {"🏠", "Home",     ACTION_NONE,    0},  // TODO
+        {"📰", "News",     ACTION_NONE,    0},  // TODO
         {"⏰", "Timer",    ACTION_NONE,    0},  // TODO
-        {"💡", "Lights",   ACTION_NONE,    0},  // TODO
+        {"📹", "Zoom",     ACTION_SUBMENU, MENU_ZOOM},
         {"⚙️", "Settings", ACTION_SUBMENU, MENU_SETTINGS},
     }
 };
@@ -32,7 +29,7 @@ static const Menu menu_main = {
 static const Menu menu_music = {
     .name = "Music",
     .item_count = 6,
-    .avatar = NULL,  // TODO: avatar_music
+    .avatar = avatar_menu_music,
     .items = {
         {"⏯️", "Play",     ACTION_BLE_MEDIA, MEDIA_PLAY_PAUSE},
         {"⏭️", "Next",     ACTION_BLE_MEDIA, MEDIA_NEXT},
@@ -46,7 +43,7 @@ static const Menu menu_music = {
 static const Menu menu_zoom = {
     .name = "Zoom",
     .item_count = 6,
-    .avatar = NULL,  // TODO: avatar_zoom
+    .avatar = avatar_menu_zoom,
     .items = {
         {"🔇", "Mute",     ACTION_BLE_KEY, KEY_ZOOM_MUTE},
         {"📹", "Camera",   ACTION_BLE_KEY, KEY_ZOOM_VIDEO},
@@ -60,7 +57,7 @@ static const Menu menu_zoom = {
 static const Menu menu_settings = {
     .name = "Settings",
     .item_count = 4,
-    .avatar = NULL,  // TODO: avatar_settings
+    .avatar = avatar_menu_settings,
     .items = {
         {"🔆", "Bright",   ACTION_NONE, 0},  // TODO: brightness control
         {"📶", "WiFi",     ACTION_NONE, 0},  // TODO: WiFi settings
