@@ -16,6 +16,7 @@ static SemaphoreHandle_t lvgl_mutex = NULL;
 #define COLOR_RECORDING    lv_color_hex(0xE74C3C)  // Red
 #define COLOR_THINKING     lv_color_hex(0xF39C12)  // Orange  
 #define COLOR_SPEAKING     lv_color_hex(0x00A5C8)  // Muted cyan (matches circuit traces)
+#define COLOR_NOTIFICATION lv_color_hex(0x9B59B6)  // Purple for notifications
 #define COLOR_RING_BG      lv_color_hex(0x1A1A1A)  // Dark background
 
 // Ring objects - multiple concentric rings
@@ -110,6 +111,9 @@ void status_ring_show(ProcessingState state) {
             break;
         case STATE_SPEAKING:
             color = COLOR_SPEAKING;
+            break;
+        case STATE_NOTIFICATION:
+            color = COLOR_NOTIFICATION;
             break;
         default:
             color = lv_color_hex(0x2E86AB);
@@ -290,6 +294,24 @@ void status_ring_update() {
                 // More obvious rotation wiggle
                 int wiggle = (int)(sinf(animation_phase * 6 - phase_offset) * 8);
                 lv_arc_set_rotation(rings[i], 270 + wiggle);
+            }
+            break;
+        }
+        
+        case STATE_NOTIFICATION: {
+            // Attention-grabbing pulse - "tap me!" effect
+            // All rings pulse together in a "breathing" pattern
+            float pulse = (sinf(animation_phase * 3) + 1.0f) / 2.0f;
+            
+            for (int i = 0; i < STATUS_RING_COUNT; i++) {
+                lv_arc_set_value(rings[i], 360);
+                lv_arc_set_rotation(rings[i], 270);
+                
+                // Scale opacity based on ring (outer more visible)
+                int base_opa = 100 + (i * 40);
+                int opa = (int)(pulse * base_opa) + 80;
+                if (opa > 255) opa = 255;
+                lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
             }
             break;
         }

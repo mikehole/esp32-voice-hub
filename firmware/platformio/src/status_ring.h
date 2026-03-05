@@ -14,7 +14,8 @@ enum ProcessingState {
     STATE_CONNECTING,  // WiFi connecting - blocks interaction
     STATE_RECORDING,
     STATE_THINKING,
-    STATE_SPEAKING
+    STATE_SPEAKING,
+    STATE_NOTIFICATION  // Notification pending - waiting for user tap
 };
 
 // Number of concentric rings for pulse effect

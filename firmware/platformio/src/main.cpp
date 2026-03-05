@@ -19,6 +19,7 @@
 #include "openai_client.h"
 #include "conversation.h"
 #include "status_ring.h"
+#include "notification.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -270,6 +271,38 @@ bool is_center_touch(uint16_t x, uint16_t y) {
     return dist_sq < (65 * 65);  // ~65px radius for center circle
 }
 
+// Speak notification text via TTS
+void speak_notification(const char* text) {
+    if (!text || strlen(text) == 0) return;
+    
+    Serial.printf("Speaking notification: '%s'\n", text);
+    
+    // Show speaking state
+    avatar_set_state(STATE_SPEAKING);
+    status_ring_show(STATE_SPEAKING);
+    
+    // Get TTS audio
+    size_t audio_size = 0;
+    uint8_t* audio_data = openai_tts(text, &audio_size);
+    
+    if (audio_data) {
+        // Play audio (24kHz PCM from OpenAI)
+        audio_play(audio_data, audio_size, 24000);
+        heap_caps_free(audio_data);
+        
+        // Wait for playback to finish
+        while (audio_is_playing()) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    } else {
+        Serial.printf("TTS failed: %s\n", openai_get_last_error());
+    }
+    
+    // Return to idle
+    status_ring_hide();
+    avatar_set_state(STATE_IDLE);
+}
+
 // Process voice command after recording stops
 // Background task for voice processing
 static TaskHandle_t voice_task_handle = NULL;
@@ -396,13 +429,30 @@ void check_voice_processing() {
     // Stages 1-3: still processing, avatar shows thinking
 }
 
+// Forward declaration for notification TTS
+void speak_notification(const char* text);
+
 void check_touch() {
     uint16_t x, y;
     uint8_t touched = getTouch(&x, &y);
     
-    // Tap-to-toggle recording when Minerva selected
+    // Check for notification acknowledgment first (highest priority)
     ProcessingState ring_state = status_ring_get_state();
-    if (selected_wedge == 0 && ring_state != STATE_THINKING && ring_state != STATE_SPEAKING) {
+    if (notification_pending() && ring_state == STATE_NOTIFICATION) {
+        if (touched && !was_touched && is_center_touch(x, y)) {
+            Serial.println("Tap - acknowledge notification");
+            const char* text = notification_acknowledge();
+            if (text) {
+                // Speak the notification
+                speak_notification(text);
+            }
+            was_touched = touched;
+            return;
+        }
+    }
+    
+    // Tap-to-toggle recording when Minerva selected
+    if (selected_wedge == 0 && ring_state != STATE_THINKING && ring_state != STATE_SPEAKING && ring_state != STATE_NOTIFICATION) {
         // Tap center to start/stop recording
         if (touched && !was_touched && is_center_touch(x, y)) {
             if (audio_is_recording()) {
@@ -496,6 +546,9 @@ void setup() {
         Serial.printf("Conversation: %d messages loaded\n", conversation_get_count());
     }
     
+    // Initialize notification system
+    notification_init();
+    
     create_radial_ui();
     
     // Initialize status ring (after UI is created) - still used for recording
@@ -584,11 +637,14 @@ void loop() {
     if (wifi_state == WIFI_STATE_CONNECTED) {
         check_touch();
         check_encoder();
+        
+        // Update notification system (plays attention sound periodically)
+        notification_update();
     }
     
     wifi_manager_loop();
     
-    // Update status ring (only used for recording now)
+    // Update status ring
     status_ring_update();
     
     delay(10);

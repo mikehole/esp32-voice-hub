@@ -13,6 +13,9 @@
 #include "audio_capture.h"
 #include "openai_client.h"
 #include "conversation.h"
+#include "notification.h"
+#include "avatar.h"
+#include "status_ring.h"
 
 // Brightness callbacks
 static brightness_getter_t get_brightness = NULL;
@@ -622,6 +625,40 @@ static esp_err_t chat_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Notify endpoint - Queue announcement, show notification avatar, wait for tap
+// POST body = text to announce when user acknowledges
+static esp_err_t notify_handler(httpd_req_t *req) {
+    char text[1024] = {0};
+    
+    int content_len = req->content_len;
+    if (content_len <= 0 || content_len >= (int)sizeof(text)) {
+        httpd_resp_send(req, "Text too long (max 1023 chars)", 30);
+        return ESP_OK;
+    }
+    
+    int received = httpd_req_recv(req, text, content_len);
+    if (received != content_len) {
+        httpd_resp_send(req, "Failed to receive text", 22);
+        return ESP_OK;
+    }
+    text[received] = '\0';
+    
+    Serial.printf("Notify: '%s'\n", text);
+    
+    // Queue the notification
+    if (notification_queue(text)) {
+        // Show notification avatar and ring
+        avatar_set_state(STATE_NOTIFICATION);
+        status_ring_show(STATE_NOTIFICATION);
+        
+        httpd_resp_send(req, "Notification queued - tap to hear", 33);
+    } else {
+        httpd_resp_send(req, "Failed to queue notification", 28);
+    }
+    
+    return ESP_OK;
+}
+
 // Speak endpoint - TTS and play audio (no AI, just speaks text directly)
 static esp_err_t speak_handler(httpd_req_t *req) {
     char text[1024] = {0};
@@ -823,6 +860,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t oc_ask = { .uri = "/api/openclaw/ask", .method = HTTP_GET, .handler = openclaw_ask_handler };
     httpd_uri_t chat = { .uri = "/api/chat", .method = HTTP_POST, .handler = chat_handler };
     httpd_uri_t speak = { .uri = "/api/speak", .method = HTTP_POST, .handler = speak_handler };
+    httpd_uri_t notify = { .uri = "/api/notify", .method = HTTP_POST, .handler = notify_handler };
     httpd_uri_t tts_download = { .uri = "/api/tts", .method = HTTP_POST, .handler = tts_download_handler };
     httpd_uri_t play = { .uri = "/api/play", .method = HTTP_POST, .handler = play_handler };
     
@@ -845,9 +883,10 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &oc_ask);
     err = httpd_register_uri_handler(server, &chat);
     err = httpd_register_uri_handler(server, &speak);
+    err = httpd_register_uri_handler(server, &notify);
     err = httpd_register_uri_handler(server, &tts_download);
     err = httpd_register_uri_handler(server, &play);
-    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/play registered: %d\n", err);
+    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/notify + /api/play registered: %d\n", err);
     
     Serial.println("Admin endpoints registered");
 }

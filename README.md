@@ -9,7 +9,8 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 ## ✨ Features
 
 - 🎤 **Tap-to-talk voice assistant** — Whisper STT → OpenClaw AI → OpenAI TTS
-- 🦀 **Expressive avatar** — Minerva shows emotions: idle, listening, thinking, speaking, connecting
+- 🦀 **Expressive avatar** — Minerva shows emotions: idle, listening, thinking, speaking, connecting, notification
+- 🔔 **Push notifications** — `/api/notify` endpoint for external alerts (OpenClaw, Home Assistant, etc.)
 - 🎛️ **Radial menu navigation** — rotary encoder + touch gestures
 - 🔵 **Blue Mono UI** — deep navy background, cyan accents, matches hardware bezel
 - 💾 **Conversation memory** — persists chat history to SD card
@@ -29,6 +30,7 @@ Minerva (the assistant) has expressive avatar states that change based on what s
 | **Recording** | 👂 Hand to ear, listening | 🔴 Red pulsing |
 | **Thinking** | 🤔 Contemplative (2 variants) | — |
 | **Speaking** | ✨ Excited (2 variants) | 💠 Cyan pulsing |
+| **Notification** | 👆 Tapping screen | 💜 Purple pulsing |
 
 Avatar images are embedded in firmware (~200KB for 7 images).
 
@@ -189,14 +191,45 @@ The admin panel also shows:
 - Audio recording test tools
 - API connectivity testing
 
+## 📡 API Endpoints
+
+The device exposes REST endpoints for external integration:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/speak` | POST | Text → TTS → play immediately |
+| `/api/notify` | POST | Queue announcement, show notification avatar, wait for user tap |
+| `/api/chat` | POST | Send to OpenClaw AI, speak response |
+| `/api/play` | POST | Play raw PCM/WAV audio |
+| `/api/status` | GET | Device status (IP, heap, uptime, etc.) |
+
+### Push Notifications
+
+Send a notification that waits for user acknowledgment:
+
+```bash
+curl -X POST http://<device-ip>/api/notify \
+  -d "Hey Mike, you have a calendar event in 30 minutes"
+```
+
+**Flow:**
+1. Device shows "tapping screen" avatar with purple pulsing ring
+2. Attention chime plays every 3 seconds
+3. User taps center to acknowledge
+4. Device speaks the announcement via TTS
+5. Returns to idle state
+
+This is perfect for integrating with OpenClaw, Home Assistant, or any automation that needs to get your attention.
+
 ## 🗺️ Roadmap
 
 ### Done ✅
 - [x] Voice assistant (Minerva) with Whisper STT → AI → TTS
-- [x] Expressive avatar states (idle, listening, thinking, speaking, connecting)
+- [x] Expressive avatar states (idle, listening, thinking, speaking, connecting, notification)
 - [x] Web admin panel & WiFi captive portal
 - [x] Conversation memory (SD card)
 - [x] 3D printable desk stand
+- [x] Push notification endpoint (`/api/notify`)
 
 ### Planned 🚧
 - [ ] **Hierarchical menus** — Tap wedge to enter submenu, tap center to go back

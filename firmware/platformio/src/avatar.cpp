@@ -5,6 +5,7 @@
 #include "avatar.h"
 #include "avatar_images.h"
 #include "avatar_menu_images.h"
+#include "avatar_notification.h"
 #include "lvgl.h"
 #include <Arduino.h>
 #include <stdlib.h>
@@ -83,6 +84,12 @@ void avatar_set_state(ProcessingState state) {
             // Listening pose - hand cupped to ear
             new_image = avatar_recording;
             state_name = "recording (listening)";
+            break;
+            
+        case STATE_NOTIFICATION:
+            // Tapping screen pose - notification pending
+            new_image = avatar_notification;
+            state_name = "notification (tap me!)";
             break;
             
         default:
