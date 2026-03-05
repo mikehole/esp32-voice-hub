@@ -1,12 +1,9 @@
-# Python
+# Python (used for image conversion scripts)
 __pycache__/
 *.py[cod]
 *$py.class
 .venv/
 venv/
-
-# MicroPython
-*.mpy
 
 # PlatformIO
 .pio/
@@ -33,3 +30,9 @@ secrets.py
 config.local.py
 *.env
 reference/
+
+# Avatar generation temp files
+avatar-poses/*.json
+avatar-poses/*.html
+avatar-poses/thinking/*.json
+avatar-poses/thinking/*.html
