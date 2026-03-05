@@ -139,6 +139,21 @@ void status_ring_hide() {
     
     current_state = STATE_IDLE;
     
+    // First, paint rings black to clear any artifacts
+    for (int i = 0; i < STATUS_RING_COUNT; i++) {
+        if (rings[i]) {
+            // Set to background color and full circle to "erase"
+            lv_obj_set_style_arc_color(rings[i], lv_color_hex(0x0F2744), LV_PART_INDICATOR);
+            lv_obj_set_style_arc_opa(rings[i], 255, LV_PART_INDICATOR);
+            lv_arc_set_value(rings[i], 360);
+            lv_arc_set_rotation(rings[i], 270);
+        }
+    }
+    
+    // Let LVGL render the black rings
+    lv_refr_now(NULL);
+    
+    // Now hide them
     for (int i = 0; i < STATUS_RING_COUNT; i++) {
         if (rings[i]) {
             lv_obj_add_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
