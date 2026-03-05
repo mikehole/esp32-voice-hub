@@ -627,7 +627,19 @@ static esp_err_t chat_handler(httpd_req_t *req) {
 
 // Notify endpoint - Queue announcement, show notification avatar, wait for tap
 // POST body = text to announce when user acknowledges
+// Query params: silent=1 (no attention chime)
 static esp_err_t notify_handler(httpd_req_t *req) {
+    // Parse query params
+    char query[64] = {0};
+    bool silent = false;
+    
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char param[8];
+        if (httpd_query_key_value(query, "silent", param, sizeof(param)) == ESP_OK) {
+            silent = (param[0] == '1' || param[0] == 't');
+        }
+    }
+    
     char text[1024] = {0};
     
     int content_len = req->content_len;
@@ -643,15 +655,17 @@ static esp_err_t notify_handler(httpd_req_t *req) {
     }
     text[received] = '\0';
     
-    Serial.printf("Notify: '%s'\n", text);
+    Serial.printf("Notify: '%s' (silent=%d)\n", text, silent);
     
     // Queue the notification
-    if (notification_queue(text)) {
+    if (notification_queue_ex(text, silent)) {
         // Show notification avatar and ring
         avatar_set_state(STATE_NOTIFICATION);
         status_ring_show(STATE_NOTIFICATION);
         
-        httpd_resp_send(req, "Notification queued - tap to hear", 33);
+        const char* resp = silent ? "Silent notification queued - tap to hear" 
+                                  : "Notification queued - tap to hear";
+        httpd_resp_send(req, resp, strlen(resp));
     } else {
         httpd_resp_send(req, "Failed to queue notification", 28);
     }
@@ -661,12 +675,13 @@ static esp_err_t notify_handler(httpd_req_t *req) {
 
 // Notify with audio - Queue pre-loaded audio, show notification avatar, wait for tap
 // POST body = raw PCM audio data (mono 16-bit signed)
-// Query params: rate=SAMPLERATE (default 24000), text=DisplayText (optional)
+// Query params: rate=SAMPLERATE (default 24000), text=DisplayText (optional), silent=1 (no chime)
 static esp_err_t notify_audio_handler(httpd_req_t *req) {
     // Parse query params
     char query[256] = {0};
     uint32_t sample_rate = 24000;
     char display_text[256] = {0};
+    bool silent = false;
     
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
         char param[64];
@@ -675,6 +690,9 @@ static esp_err_t notify_audio_handler(httpd_req_t *req) {
         }
         if (httpd_query_key_value(query, "text", display_text, sizeof(display_text)) != ESP_OK) {
             display_text[0] = '\0';
+        }
+        if (httpd_query_key_value(query, "silent", param, sizeof(param)) == ESP_OK) {
+            silent = (param[0] == '1' || param[0] == 't');
         }
     }
     
@@ -713,8 +731,8 @@ static esp_err_t notify_audio_handler(httpd_req_t *req) {
     }
     
     // Queue the notification with audio
-    if (notification_queue_audio(audio_data, content_len, sample_rate, 
-                                  display_text[0] ? display_text : NULL)) {
+    if (notification_queue_audio_ex(audio_data, content_len, sample_rate, 
+                                     display_text[0] ? display_text : NULL, silent)) {
         // Show notification avatar and ring
         avatar_set_state(STATE_NOTIFICATION);
         status_ring_show(STATE_NOTIFICATION);

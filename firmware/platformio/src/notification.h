@@ -39,11 +39,21 @@ void notification_init();
 // Returns true if queued successfully
 bool notification_queue(const char* text);
 
+// Queue a text notification with silent option
+bool notification_queue_ex(const char* text, bool silent);
+
 // Queue an audio notification (pre-loaded audio to play)
 // Audio is copied to internal buffer. Sample rate for playback.
 // Returns true if queued successfully
 bool notification_queue_audio(const uint8_t* audio_data, size_t audio_size, 
                               uint32_t sample_rate, const char* display_text);
+
+// Queue an audio notification with silent option
+bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size, 
+                                  uint32_t sample_rate, const char* display_text, bool silent);
+
+// Check if current notification is silent (no attention chime)
+bool notification_is_silent();
 
 // Check if a notification is pending
 bool notification_pending();

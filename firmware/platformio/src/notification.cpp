@@ -19,6 +19,9 @@ static uint8_t* notification_audio = NULL;
 static size_t notification_audio_size = 0;
 static uint32_t notification_audio_rate = 24000;
 
+// Silent mode (no attention chime)
+static bool notification_silent = false;
+
 void notification_init() {
     notification_text[0] = '\0';
     notify_type = NOTIFY_NONE;
@@ -26,10 +29,15 @@ void notification_init() {
     notification_audio = NULL;
     notification_audio_size = 0;
     notification_audio_rate = 24000;
+    notification_silent = false;
     Serial.println("Notification: initialized");
 }
 
 bool notification_queue(const char* text) {
+    return notification_queue_ex(text, false);
+}
+
+bool notification_queue_ex(const char* text, bool silent) {
     if (!text || strlen(text) == 0) {
         Serial.println("Notification: empty text, ignoring");
         return false;
@@ -51,14 +59,20 @@ bool notification_queue(const char* text) {
     strncpy(notification_text, text, NOTIFICATION_MAX_LEN - 1);
     notification_text[NOTIFICATION_MAX_LEN - 1] = '\0';
     notify_type = NOTIFY_TEXT;
-    last_sound_time = 0;  // Play sound immediately
+    notification_silent = silent;
+    last_sound_time = 0;  // Play sound immediately (unless silent)
     
-    Serial.printf("Notification: queued text '%s'\n", notification_text);
+    Serial.printf("Notification: queued text '%s' (silent=%d)\n", notification_text, silent);
     return true;
 }
 
 bool notification_queue_audio(const uint8_t* audio_data, size_t audio_size, 
                               uint32_t sample_rate, const char* display_text) {
+    return notification_queue_audio_ex(audio_data, audio_size, sample_rate, display_text, false);
+}
+
+bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size, 
+                                  uint32_t sample_rate, const char* display_text, bool silent) {
     if (!audio_data || audio_size == 0) {
         Serial.println("Notification: no audio data");
         return false;
@@ -97,11 +111,16 @@ bool notification_queue_audio(const uint8_t* audio_data, size_t audio_size,
     }
     
     notify_type = NOTIFY_AUDIO;
-    last_sound_time = 0;  // Play sound immediately
+    notification_silent = silent;
+    last_sound_time = 0;  // Play sound immediately (unless silent)
     
-    Serial.printf("Notification: queued audio (%u bytes @ %u Hz)\n", 
-                  audio_size, sample_rate);
+    Serial.printf("Notification: queued audio (%u bytes @ %u Hz, silent=%d)\n", 
+                  audio_size, sample_rate, silent);
     return true;
+}
+
+bool notification_is_silent() {
+    return notification_silent;
 }
 
 bool notification_pending() {
@@ -192,6 +211,11 @@ void notification_update() {
     
     // Don't play sound if something else is playing
     if (audio_is_playing()) {
+        return;
+    }
+    
+    // Skip sound if silent mode
+    if (notification_silent) {
         return;
     }
     
