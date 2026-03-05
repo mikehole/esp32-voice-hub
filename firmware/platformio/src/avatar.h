@@ -16,4 +16,7 @@ void avatar_set_state(ProcessingState state);
 // Get current avatar image object
 lv_obj_t* avatar_get_obj();
 
+// Set avatar based on selected wedge (for menu navigation)
+void avatar_set_wedge(int wedge_index);
+
 #endif // AVATAR_H

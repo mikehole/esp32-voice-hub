@@ -245,24 +245,15 @@ void update_selection() {
         }
     }
     
-    // Update center content
-    if (selected_wedge == 0) {
-        // Minerva - show avatar, hide icon
-        lv_label_set_text(center_icon, "");
-        lv_obj_t* avatar_obj = avatar_get_obj();
-        if (avatar_obj) {
-            lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
-        }
-        lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
-    } else {
-        // Other - show icon, hide avatar
-        lv_obj_t* avatar_obj = avatar_get_obj();
-        if (avatar_obj) {
-            lv_obj_add_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
-        }
-        lv_label_set_text(center_icon, wedge_icons[selected_wedge]);
-        lv_obj_set_style_text_color(center_icon, COLOR_SELECTED, 0);
-        lv_obj_center(center_icon);
+    // Update center avatar based on selected wedge
+    // Each wedge has a themed Minerva avatar!
+    avatar_set_wedge(selected_wedge);
+    
+    // Always show avatar, hide icon text
+    lv_label_set_text(center_icon, "");
+    lv_obj_t* avatar_obj = avatar_get_obj();
+    if (avatar_obj) {
+        lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

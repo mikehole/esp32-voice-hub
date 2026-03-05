@@ -1,9 +1,10 @@
 /**
- * Avatar state management - swap avatar images based on processing state
+ * Avatar state management - swap avatar images based on processing state or selected wedge
  */
 
 #include "avatar.h"
 #include "avatar_images.h"
+#include "avatar_menu_images.h"
 #include "lvgl.h"
 #include <Arduino.h>
 #include <stdlib.h>
@@ -11,10 +12,23 @@
 static lv_obj_t* avatar_img = NULL;
 static lv_img_dsc_t img_dsc;
 static ProcessingState current_avatar_state = STATE_IDLE;
+static int current_wedge = 0;
 
 // Image descriptors for each state
 static const uint16_t* thinking_images[] = { avatar_thinking_1, avatar_thinking_2 };
 static const uint16_t* speaking_images[] = { avatar_speaking_1, avatar_speaking_2 };
+
+// Menu wedge avatars (matches wedge order)
+static const uint16_t* wedge_avatars[] = {
+    avatar_idle,           // 0: Minerva
+    avatar_menu_music,     // 1: Music
+    avatar_menu_home,      // 2: Home
+    avatar_menu_weather,   // 3: Weather
+    avatar_menu_news,      // 4: News
+    avatar_menu_timer,     // 5: Timer
+    avatar_menu_zoom,      // 6: Zoom
+    avatar_menu_settings,  // 7: Settings
+};
 
 void avatar_init(lv_obj_t* parent) {
     // Create image object
@@ -85,4 +99,21 @@ void avatar_set_state(ProcessingState state) {
 
 lv_obj_t* avatar_get_obj() {
     return avatar_img;
+}
+
+// Set avatar based on selected wedge (for menu navigation)
+void avatar_set_wedge(int wedge_index) {
+    if (!avatar_img) return;
+    if (wedge_index < 0 || wedge_index > 7) return;
+    if (wedge_index == current_wedge && current_avatar_state == STATE_IDLE) return;
+    
+    const uint16_t* new_image = wedge_avatars[wedge_index];
+    
+    img_dsc.data = (const uint8_t*)new_image;
+    lv_img_set_src(avatar_img, &img_dsc);
+    
+    current_wedge = wedge_index;
+    current_avatar_state = STATE_IDLE;  // Reset state when changing wedge
+    
+    Serial.printf("Avatar: wedge %d selected\n", wedge_index);
 }
