@@ -253,6 +253,12 @@ void update_selection() {
     lv_obj_t* avatar_obj = avatar_get_obj();
     if (avatar_obj) {
         lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_invalidate(avatar_obj);
+    }
+    
+    // Invalidate highlight meter for clean redraw
+    if (highlight_meter) {
+        lv_obj_invalidate(highlight_meter);
     }
     
     lvgl_port_unlock();
