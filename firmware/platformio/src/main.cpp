@@ -339,7 +339,7 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     Serial.println("Triggering voice hook...");
     
     // Get our IP for the URLs
-    String ip = WiFi.localIP().toString();
+    String ip = wifi_manager_get_ip();
     String audio_url = "http://" + ip + "/api/audio/download";
     String callback_url = "http://" + ip + "/api/play?rate=12000";
     
