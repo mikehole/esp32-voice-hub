@@ -103,6 +103,8 @@ void avatar_set_state(ProcessingState state) {
         if (lvgl_port_lock(50)) {
             img_dsc.data = (const uint8_t*)new_image;
             lv_img_set_src(avatar_img, &img_dsc);
+            // Force redraw of avatar area
+            lv_obj_invalidate(avatar_img);
             lvgl_port_unlock();
         }
         current_avatar_state = state;
@@ -125,6 +127,8 @@ void avatar_set_wedge(int wedge_index) {
     if (lvgl_port_lock(50)) {
         img_dsc.data = (const uint8_t*)new_image;
         lv_img_set_src(avatar_img, &img_dsc);
+        // Force redraw of avatar area
+        lv_obj_invalidate(avatar_img);
         lvgl_port_unlock();
     }
     
