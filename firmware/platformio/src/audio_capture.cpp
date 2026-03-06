@@ -35,6 +35,7 @@ static TaskHandle_t playback_task_handle = NULL;
 static const uint8_t* playback_data = NULL;
 static size_t playback_size = 0;
 static uint32_t playback_sample_rate = 0;
+static bool playback_owns_buffer = false;  // If true, task will free playback_data
 
 // Pre-allocated volume buffer for playback (avoid malloc during audio)
 #define PLAYBACK_CHUNK_SIZE 2048
@@ -315,17 +316,11 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     playing = false;
     
     // Use the working stereo playback function
-    // NOTE: audio_play_stereo spawns a background task, so we can't free stereo_buf here!
-    // The task will use playback_data which points to our buffer.
-    // We need to wait for playback to complete before freeing.
+    // Mark buffer as owned so the playback task will free it when done
+    playback_owns_buffer = true;
     bool result = audio_play_stereo(stereo_buf, stereo_size, sample_rate);
     
-    // Wait for playback task to complete
-    while (audio_is_playing()) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-    
-    heap_caps_free(stereo_buf);
+    // Don't wait or free here - task will free when complete
     return result;
 }
 
@@ -389,6 +384,14 @@ static void playback_task(void* param) {
     
     // Don't free vol_buf - it's pre-allocated
     i2s_channel_disable(tx_chan);
+    
+    // Free the playback buffer if we own it (mono->stereo conversion case)
+    if (playback_owns_buffer && playback_data) {
+        heap_caps_free((void*)playback_data);
+        playback_data = NULL;
+        playback_owns_buffer = false;
+    }
+    
     playing = false;
     playback_task_handle = NULL;
     
@@ -415,6 +418,11 @@ bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
     err = i2s_channel_enable(tx_chan);
     if (err != ESP_OK) {
         Serial.printf("Audio: Failed to enable TX channel: %d\n", err);
+        // If we own the buffer, free it on failure
+        if (playback_owns_buffer && data) {
+            heap_caps_free((void*)data);
+            playback_owns_buffer = false;
+        }
         return false;
     }
     
