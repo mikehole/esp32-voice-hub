@@ -934,6 +934,167 @@ static esp_err_t clear_conversation_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// ============ NEW MINERVA CONTROL ENDPOINTS ============
+
+// POST /api/avatar - Upload custom 130x130 RGB565 image (33800 bytes)
+static esp_err_t avatar_upload_handler(httpd_req_t *req) {
+    size_t content_len = req->content_len;
+    const size_t expected_size = 130 * 130 * 2;  // 33800 bytes
+    
+    if (content_len != expected_size) {
+        char err[100];
+        snprintf(err, sizeof(err), "Wrong size: got %u, expected %u (130x130 RGB565)", content_len, expected_size);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, err, strlen(err));
+        return ESP_OK;
+    }
+    
+    // Allocate buffer
+    uint8_t* img_data = (uint8_t*)heap_caps_malloc(content_len, MALLOC_CAP_SPIRAM);
+    if (!img_data) {
+        httpd_resp_send(req, "Out of memory", 13);
+        return ESP_OK;
+    }
+    
+    // Receive data
+    int total = 0;
+    while (total < content_len) {
+        int received = httpd_req_recv(req, (char*)(img_data + total), content_len - total);
+        if (received <= 0) {
+            heap_caps_free(img_data);
+            httpd_resp_send(req, "Failed to receive data", 22);
+            return ESP_OK;
+        }
+        total += received;
+    }
+    
+    // Set avatar
+    bool success = avatar_set_custom((const uint16_t*)img_data, content_len);
+    heap_caps_free(img_data);
+    
+    if (success) {
+        httpd_resp_send(req, "Avatar updated", 14);
+    } else {
+        httpd_resp_send(req, "Failed to set avatar", 20);
+    }
+    return ESP_OK;
+}
+
+// GET /api/avatar/reset - Reset to normal avatar
+static esp_err_t avatar_reset_handler(httpd_req_t *req) {
+    avatar_reset_custom();
+    httpd_resp_send(req, "Avatar reset", 12);
+    return ESP_OK;
+}
+
+// POST /api/ring - Show ring with state (?state=thinking|speaking|recording|notification|connecting)
+static esp_err_t ring_show_handler(httpd_req_t *req) {
+    char query[64] = {0};
+    httpd_req_get_url_query_str(req, query, sizeof(query));
+    
+    char state_str[32] = {0};
+    httpd_query_key_value(query, "state", state_str, sizeof(state_str));
+    
+    ProcessingState state = STATE_IDLE;
+    if (strcmp(state_str, "connecting") == 0) state = STATE_CONNECTING;
+    else if (strcmp(state_str, "recording") == 0) state = STATE_RECORDING;
+    else if (strcmp(state_str, "thinking") == 0) state = STATE_THINKING;
+    else if (strcmp(state_str, "speaking") == 0) state = STATE_SPEAKING;
+    else if (strcmp(state_str, "notification") == 0) state = STATE_NOTIFICATION;
+    else {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "Valid states: connecting, recording, thinking, speaking, notification", 70);
+        return ESP_OK;
+    }
+    
+    status_ring_show(state);
+    
+    char resp[64];
+    snprintf(resp, sizeof(resp), "Ring showing: %s", state_str);
+    httpd_resp_send(req, resp, strlen(resp));
+    return ESP_OK;
+}
+
+// GET /api/ring/hide - Hide ring
+static esp_err_t ring_hide_handler(httpd_req_t *req) {
+    status_ring_hide();
+    httpd_resp_send(req, "Ring hidden", 11);
+    return ESP_OK;
+}
+
+// GET /api/heap - Memory stats
+static esp_err_t heap_handler(httpd_req_t *req) {
+    char json[512];
+    snprintf(json, sizeof(json),
+        "{"
+        "\"heap_free\":%u,"
+        "\"heap_largest\":%u,"
+        "\"heap_min_free\":%u,"
+        "\"psram_free\":%u,"
+        "\"psram_largest\":%u,"
+        "\"psram_total\":%u"
+        "}",
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+        heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+        heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+        heap_caps_get_total_size(MALLOC_CAP_SPIRAM)
+    );
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    return ESP_OK;
+}
+
+// POST /api/avatar/state - Set avatar pose (?state=idle|thinking|speaking|recording|notification|connecting)
+static esp_err_t avatar_state_handler(httpd_req_t *req) {
+    char query[64] = {0};
+    httpd_req_get_url_query_str(req, query, sizeof(query));
+    
+    char state_str[32] = {0};
+    httpd_query_key_value(query, "state", state_str, sizeof(state_str));
+    
+    ProcessingState state = STATE_IDLE;
+    if (strcmp(state_str, "idle") == 0) state = STATE_IDLE;
+    else if (strcmp(state_str, "connecting") == 0) state = STATE_CONNECTING;
+    else if (strcmp(state_str, "recording") == 0) state = STATE_RECORDING;
+    else if (strcmp(state_str, "thinking") == 0) state = STATE_THINKING;
+    else if (strcmp(state_str, "speaking") == 0) state = STATE_SPEAKING;
+    else if (strcmp(state_str, "notification") == 0) state = STATE_NOTIFICATION;
+    else {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "Valid states: idle, connecting, recording, thinking, speaking, notification", 76);
+        return ESP_OK;
+    }
+    
+    avatar_set_state(state);
+    
+    char resp[64];
+    snprintf(resp, sizeof(resp), "Avatar state: %s", state_str);
+    httpd_resp_send(req, resp, strlen(resp));
+    return ESP_OK;
+}
+
+// GET /api/volume - Get volume, POST /api/volume?v=N - Set volume (0-100)
+static esp_err_t volume_handler(httpd_req_t *req) {
+    char query[32] = {0};
+    httpd_req_get_url_query_str(req, query, sizeof(query));
+    
+    char vol_str[8] = {0};
+    if (httpd_query_key_value(query, "v", vol_str, sizeof(vol_str)) == ESP_OK) {
+        int vol = atoi(vol_str);
+        if (vol < 0) vol = 0;
+        if (vol > 100) vol = 100;
+        audio_set_volume(vol);
+    }
+    
+    char resp[32];
+    snprintf(resp, sizeof(resp), "{\"volume\":%d}", audio_get_volume());
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp, strlen(resp));
+    return ESP_OK;
+}
+
 void web_admin_register(httpd_handle_t server) {
     httpd_uri_t admin = { .uri = "/admin", .method = HTTP_GET, .handler = admin_handler };
     httpd_uri_t status = { .uri = "/api/status", .method = HTTP_GET, .handler = status_handler };
@@ -955,6 +1116,15 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t notify_audio = { .uri = "/api/notify-audio", .method = HTTP_POST, .handler = notify_audio_handler };
     httpd_uri_t tts_download = { .uri = "/api/tts", .method = HTTP_POST, .handler = tts_download_handler };
     httpd_uri_t play = { .uri = "/api/play", .method = HTTP_POST, .handler = play_handler };
+    
+    // New Minerva control endpoints
+    httpd_uri_t avatar_upload = { .uri = "/api/avatar", .method = HTTP_POST, .handler = avatar_upload_handler };
+    httpd_uri_t avatar_reset = { .uri = "/api/avatar/reset", .method = HTTP_GET, .handler = avatar_reset_handler };
+    httpd_uri_t avatar_state = { .uri = "/api/avatar/state", .method = HTTP_GET, .handler = avatar_state_handler };
+    httpd_uri_t ring_show = { .uri = "/api/ring", .method = HTTP_GET, .handler = ring_show_handler };
+    httpd_uri_t ring_hide = { .uri = "/api/ring/hide", .method = HTTP_GET, .handler = ring_hide_handler };
+    httpd_uri_t heap_info = { .uri = "/api/heap", .method = HTTP_GET, .handler = heap_handler };
+    httpd_uri_t volume = { .uri = "/api/volume", .method = HTTP_GET, .handler = volume_handler };
     
     esp_err_t err;
     err = httpd_register_uri_handler(server, &admin);
@@ -979,7 +1149,16 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &notify_audio);
     err = httpd_register_uri_handler(server, &tts_download);
     err = httpd_register_uri_handler(server, &play);
-    Serial.printf("Admin: /api/openai/* + /api/openclaw/* + /api/speak + /api/notify + /api/notify-audio + /api/play registered: %d\n", err);
+    
+    // Register new Minerva control endpoints
+    err = httpd_register_uri_handler(server, &avatar_upload);
+    err = httpd_register_uri_handler(server, &avatar_reset);
+    err = httpd_register_uri_handler(server, &avatar_state);
+    err = httpd_register_uri_handler(server, &ring_show);
+    err = httpd_register_uri_handler(server, &ring_hide);
+    err = httpd_register_uri_handler(server, &heap_info);
+    err = httpd_register_uri_handler(server, &volume);
+    Serial.printf("Admin: Minerva control endpoints registered: %d\n", err);
     
     Serial.println("Admin endpoints registered");
 }

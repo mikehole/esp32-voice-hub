@@ -41,6 +41,9 @@ static bool playback_owns_buffer = false;  // If true, task will free playback_d
 #define PLAYBACK_CHUNK_SIZE 2048
 static int16_t* playback_vol_buf = NULL;
 
+// Volume control (0-100, default 30)
+static int playback_volume = 30;
+
 // Initialize PDM microphone (I2S RX)
 static bool init_pdm_mic() {
     i2s_chan_config_t rx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
@@ -326,7 +329,7 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
 
 // Playback task - runs on core 1 for smooth audio
 static void playback_task(void* param) {
-    const float volume = 0.3f;
+    const float volume = playback_volume / 100.0f;
     
     // Use pre-allocated buffer (avoid malloc during playback)
     if (!playback_vol_buf) {
@@ -490,4 +493,15 @@ const uint8_t* audio_get_last_recording(size_t* out_size) {
     }
     *out_size = record_position;
     return record_buffer;
+}
+
+void audio_set_volume(int vol) {
+    if (vol < 0) vol = 0;
+    if (vol > 100) vol = 100;
+    playback_volume = vol;
+    Serial.printf("Audio: Volume set to %d%%\n", vol);
+}
+
+int audio_get_volume() {
+    return playback_volume;
 }

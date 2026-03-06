@@ -43,4 +43,8 @@ uint8_t audio_get_level();
 // Get last recorded audio buffer (for download)
 const uint8_t* audio_get_last_recording(size_t* out_size);
 
+// Volume control (0-100)
+void audio_set_volume(int vol);
+int audio_get_volume();
+
 #endif // AUDIO_CAPTURE_H

@@ -137,3 +137,56 @@ void avatar_set_wedge(int wedge_index) {
     
     Serial.printf("Avatar: wedge %d selected\n", wedge_index);
 }
+
+// Custom avatar support
+static uint16_t* custom_avatar_buffer = NULL;
+static bool custom_avatar_active = false;
+
+bool avatar_set_custom(const uint16_t* rgb565_data, size_t size) {
+    if (!avatar_img) return false;
+    
+    // Avatar is 130x130 RGB565 = 33800 bytes
+    const size_t expected_size = 130 * 130 * 2;
+    if (size != expected_size) {
+        Serial.printf("Avatar: custom image wrong size (%u, expected %u)\n", size, expected_size);
+        return false;
+    }
+    
+    // Allocate buffer in PSRAM if not already
+    if (!custom_avatar_buffer) {
+        custom_avatar_buffer = (uint16_t*)heap_caps_malloc(expected_size, MALLOC_CAP_SPIRAM);
+        if (!custom_avatar_buffer) {
+            Serial.println("Avatar: failed to allocate custom buffer");
+            return false;
+        }
+    }
+    
+    // Copy data
+    memcpy(custom_avatar_buffer, rgb565_data, expected_size);
+    
+    // Display it
+    if (lvgl_port_lock(50)) {
+        img_dsc.data = (const uint8_t*)custom_avatar_buffer;
+        lv_img_set_src(avatar_img, &img_dsc);
+        lv_obj_invalidate(avatar_img);
+        lvgl_port_unlock();
+    }
+    
+    custom_avatar_active = true;
+    Serial.println("Avatar: custom image set");
+    return true;
+}
+
+bool avatar_is_custom() {
+    return custom_avatar_active;
+}
+
+void avatar_reset_custom() {
+    if (!custom_avatar_active) return;
+    
+    custom_avatar_active = false;
+    
+    // Return to current wedge avatar
+    avatar_set_wedge(current_wedge);
+    Serial.println("Avatar: reset to normal");
+}
