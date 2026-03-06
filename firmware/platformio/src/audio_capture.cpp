@@ -11,8 +11,6 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "lvgl.h"
-#include "status_ring.h"
 
 static const char* TAG = "audio";
 
@@ -31,6 +29,12 @@ static volatile uint8_t current_audio_level = 0;
 
 // Recording task handle
 static TaskHandle_t record_task_handle = NULL;
+
+// Playback task handle and state
+static TaskHandle_t playback_task_handle = NULL;
+static const uint8_t* playback_data = NULL;
+static size_t playback_size = 0;
+static uint32_t playback_sample_rate = 0;
 
 // Initialize PDM microphone (I2S RX)
 static bool init_pdm_mic() {
@@ -306,13 +310,66 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     return result;
 }
 
+// Playback task - runs on core 1 for smooth audio
+static void playback_task(void* param) {
+    const float volume = 0.3f;
+    const size_t CHUNK_SIZE = 2048;
+    
+    int16_t* vol_buf = (int16_t*)heap_caps_malloc(CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!vol_buf) {
+        Serial.println("Audio: Failed to allocate volume buffer in task");
+        playing = false;
+        playback_task_handle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    size_t bytes_written = 0;
+    size_t offset = 0;
+    const int16_t* samples = (const int16_t*)playback_data;
+    size_t total_samples = playback_size / 2;  // 16-bit samples
+    
+    while (offset < total_samples && playing) {
+        size_t samples_to_process = min((size_t)(CHUNK_SIZE / 2), total_samples - offset);
+        
+        for (size_t i = 0; i < samples_to_process; i++) {
+            vol_buf[i] = (int16_t)(samples[offset + i] * volume);
+        }
+        
+        size_t bytes_to_write = samples_to_process * 2;
+        esp_err_t err = i2s_channel_write(tx_chan, vol_buf, bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
+        if (err == ESP_OK) {
+            offset += samples_to_process;
+        } else {
+            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
+            break;
+        }
+        
+        // Yield to other tasks on this core
+        taskYIELD();
+    }
+    
+    // Flush with silence
+    memset(vol_buf, 0, CHUNK_SIZE);
+    i2s_channel_write(tx_chan, vol_buf, CHUNK_SIZE, &bytes_written, pdMS_TO_TICKS(100));
+    
+    heap_caps_free(vol_buf);
+    i2s_channel_disable(tx_chan);
+    playing = false;
+    playback_task_handle = NULL;
+    
+    Serial.printf("Audio: Playback task complete (%u samples)\n", offset);
+    vTaskDelete(NULL);
+}
+
 // Play stereo audio directly (no conversion needed)
+// Now runs in a separate task on core 1 for smooth playback
 bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
     if (playing || recording) {
         return false;
     }
     
-    Serial.printf("Audio: Playing %u bytes stereo at %u Hz\n", size, sample_rate);
+    Serial.printf("Audio: Playing %u bytes stereo at %u Hz (threaded)\n", size, sample_rate);
     
     // Reconfigure I2S clock for requested sample rate
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
@@ -327,61 +384,31 @@ bool audio_play_stereo(const uint8_t* data, size_t size, uint32_t sample_rate) {
         return false;
     }
     
+    // Store playback params for the task
+    playback_data = data;
+    playback_size = size;
+    playback_sample_rate = sample_rate;
     playing = true;
     
-    // Direct write - data is already stereo 16-bit
-    // Apply volume scaling
-    const float volume = 0.3f;
-    const size_t CHUNK_SIZE = 2048;
-    int16_t* vol_buf = (int16_t*)heap_caps_malloc(CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!vol_buf) {
-        Serial.println("Audio: Failed to allocate volume buffer");
+    // Create playback task on core 1 (UI runs on core 0)
+    // Priority 10 = high priority for smooth audio
+    BaseType_t result = xTaskCreatePinnedToCore(
+        playback_task,
+        "audio_play",
+        4096,
+        NULL,
+        10,  // High priority
+        &playback_task_handle,
+        1    // Core 1 (separate from UI on core 0)
+    );
+    
+    if (result != pdPASS) {
+        Serial.println("Audio: Failed to create playback task");
         i2s_channel_disable(tx_chan);
         playing = false;
         return false;
     }
     
-    size_t bytes_written = 0;
-    size_t offset = 0;
-    const int16_t* samples = (const int16_t*)data;
-    size_t total_samples = size / 2;  // 16-bit samples
-    
-    while (offset < total_samples && playing) {
-        size_t samples_to_process = min((size_t)(CHUNK_SIZE / 2), total_samples - offset);
-        
-        for (size_t i = 0; i < samples_to_process; i++) {
-            vol_buf[i] = (int16_t)(samples[offset + i] * volume);
-        }
-        
-        size_t bytes_to_write = samples_to_process * 2;
-        err = i2s_channel_write(tx_chan, vol_buf, bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
-        if (err == ESP_OK) {
-            offset += samples_to_process;
-        } else {
-            Serial.printf("Audio: Write error at offset %u: %d\n", offset, err);
-            break;
-        }
-        
-        // Update UI during playback (runs on main thread, so LVGL is safe)
-        static size_t last_ui_update = 0;
-        if (offset - last_ui_update > sample_rate / 10) {  // ~100ms
-            lv_timer_handler();
-            status_ring_update();
-            last_ui_update = offset;
-        }
-        
-        yield();  // Let other tasks run
-    }
-    
-    // Flush with silence
-    memset(vol_buf, 0, CHUNK_SIZE);
-    i2s_channel_write(tx_chan, vol_buf, CHUNK_SIZE, &bytes_written, pdMS_TO_TICKS(100));
-    
-    heap_caps_free(vol_buf);
-    i2s_channel_disable(tx_chan);
-    playing = false;
-    
-    Serial.printf("Audio: Stereo playback complete (%u samples)\n", offset);
     return true;
 }
 
@@ -391,8 +418,22 @@ bool audio_is_playing() {
 
 void audio_stop_playback() {
     if (playing) {
-        playing = false;
-        i2s_channel_disable(tx_chan);
+        playing = false;  // Signal task to stop
+        
+        // Wait for task to finish (with timeout)
+        int timeout = 50;  // 500ms max
+        while (playback_task_handle != NULL && timeout > 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            timeout--;
+        }
+        
+        // Force cleanup if task didn't exit
+        if (playback_task_handle != NULL) {
+            Serial.println("Audio: Force stopping playback task");
+            vTaskDelete(playback_task_handle);
+            playback_task_handle = NULL;
+            i2s_channel_disable(tx_chan);
+        }
     }
 }
 
