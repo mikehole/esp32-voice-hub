@@ -186,7 +186,14 @@ void avatar_reset_custom() {
     
     custom_avatar_active = false;
     
-    // Return to current wedge avatar
-    avatar_set_wedge(current_wedge);
+    // Return to idle avatar and force full screen refresh
+    if (lvgl_port_lock(50)) {
+        img_dsc.data = (const uint8_t*)avatar_idle;
+        lv_img_set_src(avatar_img, &img_dsc);
+        lv_obj_invalidate(avatar_img);
+        lv_obj_invalidate(lv_scr_act());  // Full screen refresh
+        lvgl_port_unlock();
+    }
+    current_avatar_state = STATE_IDLE;
     Serial.println("Avatar: reset to normal");
 }
