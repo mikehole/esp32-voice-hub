@@ -137,9 +137,11 @@ void status_ring_hide() {
     
     current_state = STATE_IDLE;
     
-    // Hide the rings
+    // Reset rings to transparent/hidden state
     for (int i = 0; i < STATUS_RING_COUNT; i++) {
         if (rings[i]) {
+            // Set opacity to 0 and hide
+            lv_obj_set_style_arc_opa(rings[i], 0, LV_PART_INDICATOR);
             lv_obj_add_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
