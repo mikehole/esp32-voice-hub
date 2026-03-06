@@ -72,17 +72,20 @@ curl -X POST "{{callback_url}}" \
 
 ## Reminders and Timers
 
-When the user asks to be reminded or pinged in X minutes, create a cron job that **delivers via the voice hub**, not chat:
+When the user asks to be reminded or pinged in X minutes, create a cron job that **delivers via the voice hub as a notification**, not chat:
 
 ```bash
 openclaw cron add \
   --name "voice-reminder" \
   --at "Xm" \
-  --message "Play a spoken reminder on the voice hub: '<reminder text>'. Use the desk-minerva skill to POST TTS audio to http://192.168.1.224/api/play?rate=12000" \
+  --message "Send a voice notification to the desk orb. Generate TTS for: '<reminder text>' and POST to http://192.168.1.224/api/notify-audio?rate=12000 (NOT /api/play). This shows the notification ring and requires tap to acknowledge." \
   --delete-after-run
 ```
 
-The cron job's agent turn will then use the `desk-minerva` skill to speak the reminder through the orb.
+**Important:** Use `/api/notify-audio` (not `/api/play`) for reminders:
+- Shows purple notification ring with attention chime
+- User must tap to acknowledge and hear the message
+- Ensures reminders aren't missed if user is away
 
 **Do NOT use `--announce`** for voice reminders — that would send text to Slack instead of audio to the orb.
 
