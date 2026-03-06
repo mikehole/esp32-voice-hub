@@ -12,9 +12,11 @@ static SemaphoreHandle_t lvgl_mutex = NULL;
 
 void lvgl_port_init() {
     if (!lvgl_mutex) {
-        lvgl_mutex = xSemaphoreCreateMutex();
+        // Use recursive mutex so same thread can lock multiple times
+        // This allows nested calls like: create_ui() -> update_selection()
+        lvgl_mutex = xSemaphoreCreateRecursiveMutex();
         if (lvgl_mutex) {
-            Serial.println("LVGL port: mutex created");
+            Serial.println("LVGL port: recursive mutex created");
         } else {
             Serial.println("LVGL port: ERROR - failed to create mutex!");
         }
@@ -28,12 +30,12 @@ bool lvgl_port_lock(uint32_t timeout_ms) {
     }
     
     TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
-    return xSemaphoreTake(lvgl_mutex, ticks) == pdTRUE;
+    return xSemaphoreTakeRecursive(lvgl_mutex, ticks) == pdTRUE;
 }
 
 void lvgl_port_unlock() {
     if (lvgl_mutex) {
-        xSemaphoreGive(lvgl_mutex);
+        xSemaphoreGiveRecursive(lvgl_mutex);
     }
 }
 
