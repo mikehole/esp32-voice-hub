@@ -279,20 +279,25 @@ void status_ring_update() {
         }
         
         case STATE_SPEAKING: {
-            // Ripple outward effect - rings pulse in sequence
-            // MORE DRAMATIC: full opacity range, faster, bigger phase offset
+            // Ripple outward effect - rings pulse based on audio level
+            uint8_t level = audio_get_level();
+            float audio_factor = level / 100.0f;
+            
             for (int i = 0; i < STATUS_RING_COUNT; i++) {
                 lv_arc_set_value(rings[i], 360);
                 
                 // Each ring pulses at different phase (ripple outward)
                 float phase_offset = i * 1.5f;  // Bigger offset = more obvious ripple
-                float pulse = (sinf(animation_phase * 5 - phase_offset) + 1.0f) / 2.0f;
-                int opa = (int)(pulse * 255);  // Full 0-255 range
-                if (opa < 40) opa = 40;  // Minimum visibility
+                float base_pulse = (sinf(animation_phase * 5 - phase_offset) + 1.0f) / 2.0f;
+                
+                // Audio level drives the intensity - louder = brighter
+                float pulse = base_pulse * 0.3f + audio_factor * 0.7f;
+                int opa = 40 + (int)(pulse * 215);  // 40-255 range
+                if (opa > 255) opa = 255;
                 lv_obj_set_style_arc_opa(rings[i], opa, LV_PART_INDICATOR);
                 
-                // More obvious rotation wiggle
-                int wiggle = (int)(sinf(animation_phase * 6 - phase_offset) * 8);
+                // Wiggle based on audio level too
+                int wiggle = (int)(sinf(animation_phase * 6 - phase_offset) * (4 + audio_factor * 8));
                 lv_arc_set_rotation(rings[i], 270 + wiggle);
             }
             break;
