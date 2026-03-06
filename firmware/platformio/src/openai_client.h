@@ -48,4 +48,10 @@ char* openclaw_send_message(const char* message);
 // Uses conversation.h for context
 char* openclaw_send_with_history(const char* message);
 
+// Voice hook: fire-and-forget voice command
+// Sends audio_url to OpenClaw hook, which fetches audio, transcribes,
+// processes, and POSTs TTS response back to callback_url
+// Returns true if hook was triggered successfully (202 Accepted)
+bool openclaw_voice_hook(const char* audio_url, const char* callback_url);
+
 #endif // OPENAI_CLIENT_H

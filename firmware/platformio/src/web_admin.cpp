@@ -905,6 +905,10 @@ static esp_err_t play_handler(httpd_req_t *req) {
         Serial.printf("Play: WAV header: %u Hz, %d channels\n", wav_rate, wav_channels);
     }
     
+    // Show speaking state while playing (for voice hook responses)
+    avatar_set_state(STATE_SPEAKING);
+    status_ring_show(STATE_SPEAKING);
+    
     // Play - if mono, we need to convert to stereo
     bool played;
     if (is_stereo) {
@@ -914,6 +918,15 @@ static esp_err_t play_handler(httpd_req_t *req) {
         // Mono - use existing mono-to-stereo conversion
         played = audio_play(pcm_data, pcm_size, sample_rate);
     }
+    
+    // Wait for playback to complete before returning to idle
+    while (audio_is_playing()) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    
+    // Return to idle state
+    status_ring_hide();
+    avatar_set_state(STATE_IDLE);
     
     heap_caps_free(audio_data);
     

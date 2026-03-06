@@ -926,3 +926,111 @@ char* openclaw_send_with_history(const char* message) {
     
     return result;
 }
+
+// ============== Voice Hook (Fire-and-forget) ==============
+// Sends audio URL to OpenClaw hook, which fetches, transcribes, and pushes TTS back
+
+bool openclaw_voice_hook(const char* audio_url, const char* callback_url) {
+    if (!openclaw_has_endpoint()) {
+        strcpy(last_error, "No OpenClaw endpoint configured");
+        return false;
+    }
+    
+    if (!openclaw_has_token()) {
+        strcpy(last_error, "No OpenClaw token configured");
+        return false;
+    }
+    
+    Serial.printf("OpenClaw: Voice hook - audio: %s, callback: %s\n", audio_url, callback_url);
+    
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(30);
+    
+    // Parse host from endpoint URL
+    String url = String(openclaw_endpoint);
+    String host;
+    int port = 443;
+    
+    if (url.startsWith("https://")) {
+        url = url.substring(8);
+    } else if (url.startsWith("http://")) {
+        url = url.substring(7);
+        port = 80;
+    }
+    
+    int slashPos = url.indexOf('/');
+    if (slashPos > 0) {
+        host = url.substring(0, slashPos);
+    } else {
+        host = url;
+    }
+    
+    int colonPos = host.indexOf(':');
+    if (colonPos > 0) {
+        port = host.substring(colonPos + 1).toInt();
+        host = host.substring(0, colonPos);
+    }
+    
+    Serial.printf("OpenClaw: Connecting to %s:%d\n", host.c_str(), port);
+    
+    if (!client.connect(host.c_str(), port)) {
+        strcpy(last_error, "Connection to OpenClaw failed");
+        return false;
+    }
+    
+    // Build JSON body for /hooks/voice
+    String body = "{\"audio_url\":\"";
+    body += audio_url;
+    body += "\",\"callback_url\":\"";
+    body += callback_url;
+    body += "\"}";
+    
+    Serial.printf("OpenClaw: Hook body: %s\n", body.c_str());
+    
+    // Send HTTP request to /hooks/voice
+    client.print("POST /hooks/voice HTTP/1.1\r\n");
+    client.print("Host: ");
+    client.print(host);
+    client.print("\r\n");
+    client.print("Authorization: Bearer ");
+    client.print(openclaw_token);
+    client.print("\r\n");
+    client.print("Content-Type: application/json\r\n");
+    client.print("Content-Length: ");
+    client.print(body.length());
+    client.print("\r\n");
+    client.print("Connection: close\r\n\r\n");
+    client.print(body);
+    
+    // Wait for response (just check status, don't wait for full processing)
+    unsigned long start = millis();
+    while (!client.available() && millis() - start < 10000) {
+        delay(50);
+    }
+    
+    if (!client.available()) {
+        strcpy(last_error, "Hook response timeout");
+        client.stop();
+        return false;
+    }
+    
+    // Read just the status line
+    String statusLine = client.readStringUntil('\n');
+    client.stop();
+    
+    int httpCode = 0;
+    if (statusLine.startsWith("HTTP/1.1")) {
+        httpCode = statusLine.substring(9, 12).toInt();
+    }
+    
+    Serial.printf("OpenClaw: Hook HTTP %d\n", httpCode);
+    
+    // 202 Accepted is success for async hooks
+    if (httpCode == 200 || httpCode == 202) {
+        return true;
+    }
+    
+    snprintf(last_error, sizeof(last_error), "Hook HTTP %d", httpCode);
+    return false;
+}

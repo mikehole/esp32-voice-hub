@@ -320,72 +320,9 @@ void speak_notification(const char* text) {
 }
 
 // Process voice command after recording stops
-// Background task for voice processing
-static TaskHandle_t voice_task_handle = NULL;
-static const uint8_t* pending_audio_data = NULL;
-static size_t pending_audio_size = 0;
-static volatile bool voice_processing = false;
-static uint8_t* tts_result = NULL;
-static size_t tts_result_size = 0;
-static volatile int voice_stage = 0;  // 0=idle, 1=transcribing, 2=thinking, 3=tts, 4=done, -1=error
+// Now uses fire-and-forget hook - OpenClaw fetches audio and pushes TTS response back
 
-// Background task that runs API calls
-void voice_task(void* param) {
-    while (true) {
-        // Wait for work
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        
-        if (!pending_audio_data || pending_audio_size < 1000) {
-            voice_stage = -1;
-            voice_processing = false;
-            continue;
-        }
-        
-        voice_stage = 1;  // Transcribing
-        Serial.println("Background: Transcribing...");
-        
-        // Step 1: Transcribe with Whisper
-        char* transcript = openai_transcribe(pending_audio_data, pending_audio_size);
-        if (!transcript || strlen(transcript) == 0) {
-            Serial.printf("Background: Transcription failed: %s\n", openai_get_last_error());
-            if (transcript) free(transcript);
-            voice_stage = -1;
-            voice_processing = false;
-            continue;
-        }
-        
-        Serial.printf("Background: Transcript: '%s'\n", transcript);
-        voice_stage = 2;  // Thinking (OpenClaw)
-        
-        // Step 2: Send to OpenClaw
-        char* response = openclaw_send_with_history(transcript);
-        free(transcript);
-        
-        if (!response || strlen(response) == 0) {
-            Serial.printf("Background: OpenClaw failed: %s\n", openai_get_last_error());
-            voice_stage = -1;
-            voice_processing = false;
-            continue;
-        }
-        
-        Serial.printf("Background: Response: '%s'\n", response);
-        voice_stage = 3;  // TTS
-        
-        // Step 3: Convert to speech
-        tts_result = openai_tts(response, &tts_result_size);
-        free(response);
-        
-        if (!tts_result) {
-            Serial.printf("Background: TTS failed: %s\n", openai_get_last_error());
-            voice_stage = -1;
-            voice_processing = false;
-            continue;
-        }
-        
-        Serial.printf("Background: TTS ready: %u bytes\n", tts_result_size);
-        voice_stage = 4;  // Done - ready to play
-    }
-}
+static volatile bool voice_processing = false;
 
 void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
     if (audio_size < 1000) {
@@ -394,55 +331,42 @@ void process_voice_command(const uint8_t* audio_data, size_t audio_size) {
         return;
     }
     
-    // Create background task if needed
-    if (!voice_task_handle) {
-        xTaskCreatePinnedToCore(voice_task, "voice", 16384, NULL, 1, &voice_task_handle, 0);
-    }
-    
-    // Start background processing
-    pending_audio_data = audio_data;
-    pending_audio_size = audio_size;
-    voice_processing = true;
-    voice_stage = 1;
-    tts_result = NULL;
-    tts_result_size = 0;
-    
-    // Hide recording ring, show thinking avatar
+    // Hide recording ring, show thinking avatar while we send the hook
     status_ring_hide();
     avatar_set_state(STATE_THINKING);
-    Serial.println("Processing voice command in background...");
+    voice_processing = true;
     
-    // Notify background task to start
-    xTaskNotifyGive(voice_task_handle);
+    Serial.println("Triggering voice hook...");
+    
+    // Get our IP for the URLs
+    String ip = WiFi.localIP().toString();
+    String audio_url = "http://" + ip + "/api/audio/download";
+    String callback_url = "http://" + ip + "/api/play?rate=12000";
+    
+    // Fire the hook - OpenClaw will:
+    // 1. Fetch audio from audio_url
+    // 2. Transcribe it
+    // 3. Process the command
+    // 4. POST TTS response to callback_url
+    bool ok = openclaw_voice_hook(audio_url.c_str(), callback_url.c_str());
+    
+    if (ok) {
+        Serial.println("Voice hook triggered - waiting for response via /api/play");
+        // Stay in thinking state - the /api/play handler will switch to speaking
+        // when audio arrives, then back to idle when done
+    } else {
+        Serial.printf("Voice hook failed: %s\n", openai_get_last_error());
+        avatar_set_state(STATE_IDLE);
+    }
+    
+    voice_processing = false;
 }
 
 // Called from loop() to check voice processing status
 void check_voice_processing() {
-    if (!voice_processing) return;
-    
-    if (voice_stage == 4) {
-        // TTS ready - play it with speaking animation!
-        avatar_set_state(STATE_SPEAKING);
-        status_ring_show(STATE_SPEAKING);  // Cyan pulsing ring
-        lvgl_port_task_handler();  // Process pending UI updates
-        Serial.printf("Playing TTS: %u bytes\n", tts_result_size);
-        audio_play(tts_result, tts_result_size, 24000);
-        heap_caps_free(tts_result);
-        tts_result = NULL;
-        tts_result_size = 0;
-        voice_stage = 0;
-        voice_processing = false;
-        status_ring_hide();
-        avatar_set_state(STATE_IDLE);  // Return to idle
-    } else if (voice_stage == -1) {
-        // Error occurred
-        Serial.println("Voice processing failed");
-        voice_stage = 0;
-        voice_processing = false;
-        status_ring_hide();
-        avatar_set_state(STATE_IDLE);  // Return to idle
-    }
-    // Stages 1-3: still processing, avatar shows thinking
+    // With the hook-based approach, processing is fire-and-forget.
+    // The /api/play endpoint handles the response when it arrives.
+    // This function is now a no-op but kept for compatibility.
 }
 
 // Forward declaration for notification TTS
