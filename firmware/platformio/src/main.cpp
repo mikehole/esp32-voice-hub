@@ -474,9 +474,11 @@ void check_touch() {
                     Serial.printf("Playing notification audio: %u bytes @ %u Hz\n", audio_size, sample_rate);
                     audio_play(audio, audio_size, sample_rate);
                     
-                    // Wait for playback
+                    // Wait for playback, updating UI while we wait
                     while (audio_is_playing()) {
-                        vTaskDelay(pdMS_TO_TICKS(50));
+                        lvgl_port_task_handler();
+                        status_ring_update();
+                        vTaskDelay(pdMS_TO_TICKS(30));
                     }
                     
                     // Free the audio buffer now that playback is done
