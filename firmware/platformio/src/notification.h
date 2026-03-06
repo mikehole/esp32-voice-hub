@@ -55,6 +55,10 @@ bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size,
 // Check if current notification is silent (no attention chime)
 bool notification_is_silent();
 
+// Free the audio buffer after playback is complete
+// Call this after playing audio notification
+void notification_free_audio();
+
 // Check if a notification is pending
 bool notification_pending();
 

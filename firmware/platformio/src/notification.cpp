@@ -123,6 +123,15 @@ bool notification_is_silent() {
     return notification_silent;
 }
 
+void notification_free_audio() {
+    if (notification_audio) {
+        heap_caps_free(notification_audio);
+        notification_audio = NULL;
+        notification_audio_size = 0;
+        Serial.println("Notification: audio buffer freed");
+    }
+}
+
 bool notification_pending() {
     return notify_type != NOTIFY_NONE;
 }

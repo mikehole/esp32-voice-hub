@@ -476,6 +476,9 @@ void check_touch() {
                         vTaskDelay(pdMS_TO_TICKS(50));
                     }
                     
+                    // Free the audio buffer now that playback is done
+                    notification_free_audio();
+                    
                     // Return to idle
                     status_ring_hide();
                     avatar_set_state(STATE_IDLE);
