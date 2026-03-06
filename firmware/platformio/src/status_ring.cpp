@@ -141,6 +141,7 @@ void status_ring_hide() {
         }
     }
     
+    Serial.println("Status ring: hidden");
     lvgl_port_unlock();
 }
 
