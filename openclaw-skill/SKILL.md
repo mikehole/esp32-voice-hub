@@ -70,6 +70,22 @@ curl -X POST "{{callback_url}}" \
 - **Confirm actions** — "Done, I've set a reminder for 3pm" not just "OK".
 - **Handle errors gracefully** — "Sorry, I couldn't do that" with brief reason.
 
+## Reminders and Timers
+
+When the user asks to be reminded or pinged in X minutes, create a cron job that **delivers via the voice hub**, not chat:
+
+```bash
+openclaw cron add \
+  --name "voice-reminder" \
+  --at "Xm" \
+  --message "Play a spoken reminder on the voice hub: '<reminder text>'. Use the desk-minerva skill to POST TTS audio to http://192.168.1.224/api/play?rate=12000" \
+  --delete-after-run
+```
+
+The cron job's agent turn will then use the `desk-minerva` skill to speak the reminder through the orb.
+
+**Do NOT use `--announce`** for voice reminders — that would send text to Slack instead of audio to the orb.
+
 ## Example Flow
 
 **User says:** "What's the weather like?"
