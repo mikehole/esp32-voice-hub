@@ -85,13 +85,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
             snprintf(current_ip, sizeof(current_ip), IPSTR, IP2STR(&event->ip_info.ip));
             Serial.printf("WiFi: Got IP: %s\n", current_ip);
             
-            // Set Google DNS as fallback (fixes DNS resolution issues)
-            ip_addr_t dns1, dns2;
-            IP_ADDR4(&dns1, 8, 8, 8, 8);      // Google DNS primary
-            IP_ADDR4(&dns2, 8, 8, 4, 4);      // Google DNS secondary
-            dns_setserver(0, &dns1);
-            dns_setserver(1, &dns2);
-            Serial.println("WiFi: DNS set to 8.8.8.8, 8.8.4.4");
+            // Use DNS from DHCP (allows local DNS like .mynet domains)
+            Serial.println("WiFi: Using DNS from DHCP");
             
             wifi_connected = true;
             // Don't set WIFI_STATE_CONNECTED here - let loop() handle it so webserver starts
