@@ -33,10 +33,7 @@ static const uint16_t* wedge_avatars[] = {
 };
 
 void avatar_init(lv_obj_t* parent) {
-    if (!lvgl_port_lock(100)) {
-        Serial.println("Avatar: ERROR - could not get mutex for init");
-        return;
-    }
+    // NOTE: Caller must hold LVGL mutex! (called from create_radial_ui)
     
     // Create image object
     avatar_img = lv_img_create(parent);
@@ -53,7 +50,6 @@ void avatar_init(lv_obj_t* parent) {
     
     lv_img_set_src(avatar_img, &img_dsc);
     
-    lvgl_port_unlock();
     Serial.println("Avatar: initialized with idle image");
 }
 
