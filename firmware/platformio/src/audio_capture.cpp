@@ -332,9 +332,21 @@ static void playback_task(void* param) {
     while (offset < total_samples && playing) {
         size_t samples_to_process = min((size_t)(CHUNK_SIZE / 2), total_samples - offset);
         
+        // Calculate audio level for this chunk (for ring animation)
+        int32_t sum = 0;
+        int16_t max_sample = 0;
+        
         for (size_t i = 0; i < samples_to_process; i++) {
-            vol_buf[i] = (int16_t)(samples[offset + i] * volume);
+            int16_t sample = samples[offset + i];
+            vol_buf[i] = (int16_t)(sample * volume);
+            
+            // Track peak amplitude
+            int16_t abs_sample = sample < 0 ? -sample : sample;
+            if (abs_sample > max_sample) max_sample = abs_sample;
         }
+        
+        // Update audio level (0-100 scale) - use peak for more responsive animation
+        current_audio_level = (uint8_t)((max_sample * 100) / 32768);
         
         size_t bytes_to_write = samples_to_process * 2;
         esp_err_t err = i2s_channel_write(tx_chan, vol_buf, bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
@@ -348,6 +360,9 @@ static void playback_task(void* param) {
         // Yield to other tasks on this core
         taskYIELD();
     }
+    
+    // Reset audio level when done
+    current_audio_level = 0;
     
     // Flush with silence
     memset(vol_buf, 0, CHUNK_SIZE);
