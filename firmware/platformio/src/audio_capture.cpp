@@ -36,6 +36,10 @@ static const uint8_t* playback_data = NULL;
 static size_t playback_size = 0;
 static uint32_t playback_sample_rate = 0;
 
+// Pre-allocated volume buffer for playback (avoid malloc during audio)
+#define PLAYBACK_CHUNK_SIZE 2048
+static int16_t* playback_vol_buf = NULL;
+
 // Initialize PDM microphone (I2S RX)
 static bool init_pdm_mic() {
     i2s_chan_config_t rx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
@@ -193,6 +197,13 @@ bool audio_init() {
         return false;
     }
     
+    // Pre-allocate playback volume buffer (avoid malloc during playback)
+    playback_vol_buf = (int16_t*)heap_caps_malloc(PLAYBACK_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!playback_vol_buf) {
+        Serial.println("Audio: Failed to allocate playback buffer");
+        return false;
+    }
+    
     Serial.printf("Audio: Initialized (buffer: %u KB in PSRAM)\n", record_buffer_size / 1024);
     return true;
 }
@@ -313,16 +324,16 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
 // Playback task - runs on core 1 for smooth audio
 static void playback_task(void* param) {
     const float volume = 0.3f;
-    const size_t CHUNK_SIZE = 2048;
     
-    int16_t* vol_buf = (int16_t*)heap_caps_malloc(CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!vol_buf) {
-        Serial.println("Audio: Failed to allocate volume buffer in task");
+    // Use pre-allocated buffer (avoid malloc during playback)
+    if (!playback_vol_buf) {
+        Serial.println("Audio: Playback buffer not allocated!");
         playing = false;
         playback_task_handle = NULL;
         vTaskDelete(NULL);
         return;
     }
+    int16_t* vol_buf = playback_vol_buf;
     
     size_t bytes_written = 0;
     size_t offset = 0;
@@ -330,7 +341,7 @@ static void playback_task(void* param) {
     size_t total_samples = playback_size / 2;  // 16-bit samples
     
     while (offset < total_samples && playing) {
-        size_t samples_to_process = min((size_t)(CHUNK_SIZE / 2), total_samples - offset);
+        size_t samples_to_process = min((size_t)(PLAYBACK_CHUNK_SIZE / 2), total_samples - offset);
         
         // Calculate audio level for this chunk (for ring animation)
         int32_t sum = 0;
@@ -365,10 +376,10 @@ static void playback_task(void* param) {
     current_audio_level = 0;
     
     // Flush with silence
-    memset(vol_buf, 0, CHUNK_SIZE);
-    i2s_channel_write(tx_chan, vol_buf, CHUNK_SIZE, &bytes_written, pdMS_TO_TICKS(100));
+    memset(vol_buf, 0, PLAYBACK_CHUNK_SIZE);
+    i2s_channel_write(tx_chan, vol_buf, PLAYBACK_CHUNK_SIZE, &bytes_written, pdMS_TO_TICKS(100));
     
-    heap_caps_free(vol_buf);
+    // Don't free vol_buf - it's pre-allocated
     i2s_channel_disable(tx_chan);
     playing = false;
     playback_task_handle = NULL;

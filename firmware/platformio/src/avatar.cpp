@@ -6,6 +6,7 @@
 #include "avatar_images.h"
 #include "avatar_menu_images.h"
 #include "avatar_notification.h"
+#include "lvgl_port.h"
 #include "lvgl.h"
 #include <Arduino.h>
 #include <stdlib.h>
@@ -32,6 +33,11 @@ static const uint16_t* wedge_avatars[] = {
 };
 
 void avatar_init(lv_obj_t* parent) {
+    if (!lvgl_port_lock(100)) {
+        Serial.println("Avatar: ERROR - could not get mutex for init");
+        return;
+    }
+    
     // Create image object
     avatar_img = lv_img_create(parent);
     lv_obj_center(avatar_img);
@@ -47,6 +53,7 @@ void avatar_init(lv_obj_t* parent) {
     
     lv_img_set_src(avatar_img, &img_dsc);
     
+    lvgl_port_unlock();
     Serial.println("Avatar: initialized with idle image");
 }
 
@@ -97,8 +104,11 @@ void avatar_set_state(ProcessingState state) {
     }
     
     if (new_image) {
-        img_dsc.data = (const uint8_t*)new_image;
-        lv_img_set_src(avatar_img, &img_dsc);
+        if (lvgl_port_lock(50)) {
+            img_dsc.data = (const uint8_t*)new_image;
+            lv_img_set_src(avatar_img, &img_dsc);
+            lvgl_port_unlock();
+        }
         current_avatar_state = state;
         Serial.printf("Avatar: switched to %s\n", state_name);
     }
@@ -116,8 +126,11 @@ void avatar_set_wedge(int wedge_index) {
     
     const uint16_t* new_image = wedge_avatars[wedge_index];
     
-    img_dsc.data = (const uint8_t*)new_image;
-    lv_img_set_src(avatar_img, &img_dsc);
+    if (lvgl_port_lock(50)) {
+        img_dsc.data = (const uint8_t*)new_image;
+        lv_img_set_src(avatar_img, &img_dsc);
+        lvgl_port_unlock();
+    }
     
     current_wedge = wedge_index;
     current_avatar_state = STATE_IDLE;  // Reset state when changing wedge

@@ -3,13 +3,9 @@
  */
 
 #include "status_ring.h"
+#include "lvgl_port.h"
 #include "audio_capture.h"
 #include <math.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-
-// Mutex to protect LVGL access (LVGL is not thread-safe)
-static SemaphoreHandle_t lvgl_mutex = NULL;
 
 // Colors
 #define COLOR_CONNECTING   lv_color_hex(0x3498DB)  // Blue for connecting
@@ -65,11 +61,6 @@ void status_ring_init(lv_obj_t* parent) {
         lv_obj_add_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
     }
     
-    // Create mutex for thread safety
-    if (!lvgl_mutex) {
-        lvgl_mutex = xSemaphoreCreateMutex();
-    }
-    
     Serial.println("Status ring: initialized (3 concentric rings)");
 }
 
@@ -77,7 +68,7 @@ void status_ring_show(ProcessingState state) {
     if (!rings[0]) return;
     
     // Take mutex for thread safety
-    if (lvgl_mutex && xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    if (!lvgl_port_lock(100)) {
         Serial.println("Status ring: WARNING - could not get mutex for show");
         return;
     }
@@ -86,7 +77,7 @@ void status_ring_show(ProcessingState state) {
     for (int i = 0; i < STATUS_RING_COUNT; i++) {
         if (!rings[i] || !lv_obj_is_valid(rings[i])) {
             Serial.println("Status ring: WARNING - ring not valid, cannot show");
-            if (lvgl_mutex) xSemaphoreGive(lvgl_mutex);
+            lvgl_port_unlock();
             return;
         }
     }
@@ -130,12 +121,12 @@ void status_ring_show(ProcessingState state) {
         lv_obj_move_foreground(rings[i]);
     }
     
-    if (lvgl_mutex) xSemaphoreGive(lvgl_mutex);
+    lvgl_port_unlock();
 }
 
 void status_ring_hide() {
     // Take mutex for thread safety
-    if (lvgl_mutex && xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    if (!lvgl_port_lock(100)) {
         Serial.println("Status ring: WARNING - could not get mutex for hide");
         current_state = STATE_IDLE;  // Still update state
         return;
@@ -164,14 +155,14 @@ void status_ring_hide() {
         }
     }
     
-    if (lvgl_mutex) xSemaphoreGive(lvgl_mutex);
+    lvgl_port_unlock();
 }
 
 void status_ring_update() {
     if (current_state == STATE_IDLE || !rings[0]) return;
     
     // Take mutex to ensure thread safety with LVGL
-    if (!lvgl_mutex || xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
+    if (!lvgl_port_lock(10)) {
         return;  // Skip this frame if can't get mutex
     }
     
@@ -179,14 +170,14 @@ void status_ring_update() {
     for (int i = 0; i < STATUS_RING_COUNT; i++) {
         if (!rings[i]) {
             Serial.println("Status ring: ring is NULL!");
-            xSemaphoreGive(lvgl_mutex);
+            lvgl_port_unlock();
             return;
         }
         if (!lv_obj_is_valid(rings[i])) {
             Serial.println("Status ring: ring object INVALID!");
             for (int j = 0; j < STATUS_RING_COUNT; j++) rings[j] = NULL;
             current_state = STATE_IDLE;
-            xSemaphoreGive(lvgl_mutex);
+            lvgl_port_unlock();
             return;
         }
     }
@@ -195,7 +186,7 @@ void status_ring_update() {
     static unsigned long last_update = 0;
     unsigned long now = millis();
     if (now - last_update < 33) {
-        xSemaphoreGive(lvgl_mutex);
+        lvgl_port_unlock();
         return;
     }
     last_update = now;
@@ -325,7 +316,7 @@ void status_ring_update() {
             break;
     }
     
-    xSemaphoreGive(lvgl_mutex);
+    lvgl_port_unlock();
 }
 
 ProcessingState status_ring_get_state() {

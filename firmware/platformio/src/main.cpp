@@ -20,6 +20,7 @@
 #include "conversation.h"
 #include "status_ring.h"
 #include "notification.h"
+#include "lvgl_port.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -228,6 +229,7 @@ void create_radial_ui() {
 // Update just the selection highlight - no object destruction!
 void update_selection() {
     if (!ui_initialized) return;
+    if (!lvgl_port_lock(50)) return;  // Skip if can't get mutex
     
     // Move highlight arc to selected wedge
     int start = selected_wedge * 45;
@@ -246,16 +248,17 @@ void update_selection() {
         }
     }
     
-    // Update center avatar based on selected wedge
-    // Each wedge has a themed Minerva avatar!
-    avatar_set_wedge(selected_wedge);
-    
     // Always show avatar, hide icon text
     lv_label_set_text(center_icon, "");
     lv_obj_t* avatar_obj = avatar_get_obj();
     if (avatar_obj) {
         lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_HIDDEN);
     }
+    
+    lvgl_port_unlock();
+    
+    // Update center avatar based on selected wedge (has its own mutex)
+    avatar_set_wedge(selected_wedge);
 }
 
 void rebuild_ui() {
@@ -414,8 +417,8 @@ void check_voice_processing() {
     if (voice_stage == 4) {
         // TTS ready - play it with speaking animation!
         avatar_set_state(STATE_SPEAKING);
-        status_ring_show(STATE_SPEAKING);  // Green pulsing ring
-        lv_task_handler();
+        status_ring_show(STATE_SPEAKING);  // Cyan pulsing ring
+        lvgl_port_task_handler();  // Process pending UI updates
         Serial.printf("Playing TTS: %u bytes\n", tts_result_size);
         audio_play(tts_result, tts_result_size, 24000);
         heap_caps_free(tts_result);
@@ -551,6 +554,9 @@ void setup() {
     lcd_lvgl_Init();
     Serial.println("LCD initialized");
     
+    // Initialize LVGL mutex BEFORE any LVGL operations
+    lvgl_port_init();
+    
     lcd_bl_pwm_bsp_init(LCD_PWM_MODE_200);
     Serial.println("Backlight initialized");
     
@@ -593,10 +599,16 @@ void setup() {
     // Initialize notification system
     notification_init();
     
-    create_radial_ui();
-    
-    // Initialize status ring (after UI is created) - still used for recording
-    status_ring_init(lv_scr_act());
+    // Create UI (lock mutex for safety during init)
+    if (lvgl_port_lock(1000)) {
+        create_radial_ui();
+        
+        // Initialize status ring (after UI is created) - still used for recording
+        status_ring_init(lv_scr_act());
+        lvgl_port_unlock();
+    } else {
+        Serial.println("ERROR: Could not get LVGL mutex for UI init!");
+    }
     
     // Show connecting avatar + ring if not connected yet
     WiFiState wifi_state = wifi_manager_get_state();
@@ -641,11 +653,8 @@ void check_encoder() {
 void check_voice_processing();
 
 void loop() {
-    // IMPORTANT: Don't run lv_timer_handler while background task is active
-    // LVGL is not thread-safe and crashes even with mutexes
-    if (!voice_processing) {
-        lv_timer_handler();
-    }
+    // Use mutex-protected LVGL handler
+    lvgl_port_task_handler();
     
     // Check voice processing status (background task)
     check_voice_processing();
