@@ -121,6 +121,9 @@ void status_ring_show(ProcessingState state) {
         lv_obj_move_foreground(rings[i]);
     }
     
+    // Force screen refresh to clear any artifacts from previous state
+    lv_obj_invalidate(lv_scr_act());
+    
     lvgl_port_unlock();
 }
 
@@ -134,20 +137,15 @@ void status_ring_hide() {
     
     current_state = STATE_IDLE;
     
-    // Hide the rings and invalidate their area to force redraw
+    // Hide the rings
     for (int i = 0; i < STATUS_RING_COUNT; i++) {
         if (rings[i]) {
-            // Invalidate the object area BEFORE hiding to ensure redraw
-            lv_obj_invalidate(rings[i]);
             lv_obj_add_flag(rings[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
     
-    // Also invalidate the parent to ensure the area is redrawn
-    lv_obj_t* parent = lv_obj_get_parent(rings[0]);
-    if (parent) {
-        lv_obj_invalidate(parent);
-    }
+    // Force full screen invalidation to ensure proper redraw
+    lv_obj_invalidate(lv_scr_act());
     
     Serial.println("Status ring: hidden");
     lvgl_port_unlock();
