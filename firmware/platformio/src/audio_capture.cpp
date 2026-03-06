@@ -315,7 +315,15 @@ bool audio_play(const uint8_t* data, size_t size, uint32_t sample_rate) {
     playing = false;
     
     // Use the working stereo playback function
+    // NOTE: audio_play_stereo spawns a background task, so we can't free stereo_buf here!
+    // The task will use playback_data which points to our buffer.
+    // We need to wait for playback to complete before freeing.
     bool result = audio_play_stereo(stereo_buf, stereo_size, sample_rate);
+    
+    // Wait for playback task to complete
+    while (audio_is_playing()) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
     
     heap_caps_free(stereo_buf);
     return result;
