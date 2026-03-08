@@ -1,0 +1,76 @@
+{
+  "id": "esp32-audio",
+  "name": "ESP32 Audio Terminal",
+  "description": "ESP32 Voice Hub with wake word detection (Picovoice Porcupine)",
+  "kind": "channel",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "wsPort": {
+        "type": "number",
+        "default": 8765,
+        "description": "WebSocket port for ESP32 connections"
+      },
+      "wsBind": {
+        "type": "string",
+        "default": "0.0.0.0",
+        "description": "WebSocket bind address"
+      },
+      "picovoice": {
+        "type": "object",
+        "properties": {
+          "accessKey": {
+            "type": "string",
+            "description": "Picovoice access key (get free at console.picovoice.ai)"
+          },
+          "modelPath": {
+            "type": "string",
+            "description": "Path to .ppn wake word model file"
+          },
+          "sensitivity": {
+            "type": "number",
+            "default": 0.5,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Wake word detection sensitivity (0-1)"
+          }
+        }
+      },
+      "openai": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "OpenAI API key for Whisper STT and TTS"
+          },
+          "ttsVoice": {
+            "type": "string",
+            "default": "shimmer",
+            "description": "OpenAI TTS voice (alloy, echo, fable, onyx, nova, shimmer)"
+          },
+          "ttsModel": {
+            "type": "string",
+            "default": "tts-1",
+            "description": "OpenAI TTS model"
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "enabled": { "label": "Enable Plugin" },
+    "wsPort": { "label": "WebSocket Port" },
+    "wsBind": { "label": "WebSocket Bind Address", "advanced": true },
+    "picovoice.accessKey": { "label": "Picovoice Access Key", "sensitive": true },
+    "picovoice.modelPath": { "label": "Wake Word Model Path" },
+    "picovoice.sensitivity": { "label": "Wake Word Sensitivity", "advanced": true },
+    "openai.apiKey": { "label": "OpenAI API Key", "sensitive": true },
+    "openai.ttsVoice": { "label": "TTS Voice", "advanced": true },
+    "openai.ttsModel": { "label": "TTS Model", "advanced": true }
+  }
+}
