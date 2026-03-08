@@ -1090,6 +1090,66 @@ static esp_err_t avatar_state_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// POST /api/wakeword - Set wake word server host and port (JSON body)
+static esp_err_t wakeword_handler(httpd_req_t *req) {
+    char body[128] = {0};
+    
+    int content_len = req->content_len;
+    if (content_len <= 0 || content_len >= (int)sizeof(body)) {
+        httpd_resp_send(req, "Invalid body length", 19);
+        return ESP_OK;
+    }
+    
+    int received = httpd_req_recv(req, body, content_len);
+    if (received != content_len) {
+        httpd_resp_send(req, "Failed to receive body", 22);
+        return ESP_OK;
+    }
+    body[received] = '\0';
+    
+    // Parse JSON: {"host":"...", "port":...}
+    char host[64] = {0};
+    uint16_t port = 8765;
+    
+    // Simple JSON parsing
+    char* host_start = strstr(body, "\"host\"");
+    if (host_start) {
+        host_start = strchr(host_start, ':');
+        if (host_start) {
+            host_start = strchr(host_start, '"');
+            if (host_start) {
+                host_start++;
+                char* host_end = strchr(host_start, '"');
+                if (host_end && (host_end - host_start) < (int)sizeof(host)) {
+                    strncpy(host, host_start, host_end - host_start);
+                }
+            }
+        }
+    }
+    
+    char* port_start = strstr(body, "\"port\"");
+    if (port_start) {
+        port_start = strchr(port_start, ':');
+        if (port_start) {
+            port = atoi(port_start + 1);
+        }
+    }
+    
+    if (strlen(host) > 0) {
+        wakeword_set_host(host);
+        wakeword_set_port(port);
+        
+        char resp[128];
+        snprintf(resp, sizeof(resp), "{\"success\":true,\"host\":\"%s\",\"port\":%d}", host, port);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, resp, strlen(resp));
+    } else {
+        httpd_resp_send(req, "{\"success\":false,\"error\":\"Missing host\"}", 40);
+    }
+    
+    return ESP_OK;
+}
+
 // GET /api/volume - Get volume, POST /api/volume?v=N - Set volume (0-100)
 static esp_err_t volume_handler(httpd_req_t *req) {
     char query[32] = {0};
@@ -1125,6 +1185,7 @@ void web_admin_register(httpd_handle_t server) {
     httpd_uri_t oc_endpoint = { .uri = "/api/openclaw/endpoint", .method = HTTP_POST, .handler = openclaw_endpoint_handler };
     httpd_uri_t oc_token = { .uri = "/api/openclaw/token", .method = HTTP_POST, .handler = openclaw_token_handler };
     httpd_uri_t oc_ask = { .uri = "/api/openclaw/ask", .method = HTTP_GET, .handler = openclaw_ask_handler };
+    httpd_uri_t wakeword = { .uri = "/api/wakeword", .method = HTTP_POST, .handler = wakeword_handler };
     httpd_uri_t chat = { .uri = "/api/chat", .method = HTTP_POST, .handler = chat_handler };
     httpd_uri_t speak = { .uri = "/api/speak", .method = HTTP_POST, .handler = speak_handler };
     httpd_uri_t notify = { .uri = "/api/notify", .method = HTTP_POST, .handler = notify_handler };
@@ -1158,6 +1219,7 @@ void web_admin_register(httpd_handle_t server) {
     err = httpd_register_uri_handler(server, &oc_endpoint);
     err = httpd_register_uri_handler(server, &oc_token);
     err = httpd_register_uri_handler(server, &oc_ask);
+    err = httpd_register_uri_handler(server, &wakeword);
     err = httpd_register_uri_handler(server, &chat);
     err = httpd_register_uri_handler(server, &speak);
     err = httpd_register_uri_handler(server, &notify);
