@@ -24,8 +24,9 @@ import os
 import numpy as np
 
 # Model path - relative to this script
+# Using "hey jarvis" as placeholder until custom "oi minerva" model is trained
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "oi_minerva.tflite")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "hey_jarvis_v0.1.tflite")
 
 # OpenWakeWord expects exactly 80ms chunks at 16kHz
 CHUNK_SAMPLES = 1280        # 80ms at 16kHz
@@ -76,8 +77,9 @@ def main():
         # Run inference
         prediction = model.predict(audio)
         
-        # OpenWakeWord normalizes model names — "Oi Minerva" becomes "oi_minerva"
-        score = prediction.get("oi_minerva", 0.0)
+        # OpenWakeWord normalizes model names
+        # Using "hey_jarvis" as placeholder until custom model is trained
+        score = prediction.get("hey_jarvis", 0.0)
         
         if score >= THRESHOLD:
             # Wake word detected!
