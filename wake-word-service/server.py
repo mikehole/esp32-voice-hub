@@ -133,10 +133,10 @@ def start_wake_word_service():
         log.error(f"service.py not found at {service_script}")
         return False
 
-    model_path = script_dir / "models" / "oi_minerva.tflite"
+    model_path = script_dir / "models" / "oi_minerva_linux_v4.ppn"
     if not model_path.exists():
         log.warning(f"Model not found at {model_path}")
-        log.warning("Run 'python train.py' to generate the wake word model")
+        log.warning("Download model from Picovoice Console")
         return False
 
     log.info(f"Starting wake word service: {service_script}")
@@ -399,10 +399,11 @@ async def main():
         # Start background task to read wake word output
         asyncio.create_task(read_wake_word_output())
 
-    # Handle shutdown gracefully
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda: shutdown_event.set())
+    # Handle shutdown gracefully (Unix only - Windows doesn't support signal handlers)
+    if sys.platform != "win32":
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: shutdown_event.set())
 
     log.info(f"Starting WebSocket server on {args.host}:{args.port}")
 
