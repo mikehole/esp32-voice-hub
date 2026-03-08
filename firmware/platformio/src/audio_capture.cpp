@@ -519,8 +519,8 @@ static volatile bool idle_streaming = false;
 static TaskHandle_t idle_stream_task_handle = NULL;
 static IdleAudioCallback idle_audio_callback = NULL;
 
-// 80ms at 16kHz = 1280 samples = 2560 bytes (matches OpenWakeWord chunk size)
-#define IDLE_CHUNK_SAMPLES 1280
+// 32ms at 16kHz = 512 samples = 1024 bytes (matches Picovoice Porcupine frame size)
+#define IDLE_CHUNK_SAMPLES 512
 #define IDLE_CHUNK_BYTES (IDLE_CHUNK_SAMPLES * sizeof(int16_t))
 
 void audio_set_idle_callback(IdleAudioCallback cb) {

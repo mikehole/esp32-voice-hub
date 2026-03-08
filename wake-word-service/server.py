@@ -3,7 +3,7 @@
 ESP32 Voice Hub WebSocket Server
 
 Handles two modes:
-1. IDLE: Continuous 80ms audio chunks for wake word detection
+1. IDLE: Continuous 32ms audio chunks for wake word detection (Picovoice Porcupine)
 2. RECORDING: Buffered audio → STT → OpenClaw → TTS → response
 
 This is a standalone WebSocket server that complements the existing OpenClaw
@@ -11,7 +11,7 @@ voice hook integration. It runs alongside OpenClaw but doesn't require deep
 plugin integration.
 
 Architecture:
-    ESP32 ←→ WebSocket Server ←→ OpenWakeWord (subprocess)
+    ESP32 ←→ WebSocket Server ←→ Porcupine (subprocess)
                     ↓
             OpenClaw (via existing /hooks/voice endpoint)
 
@@ -52,8 +52,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("WakeWordServer")
 
-# OpenWakeWord chunk size: exactly 80ms at 16kHz
-CHUNK_SAMPLES = 1280
+# Picovoice Porcupine frame size: 512 samples (32ms at 16kHz)
+CHUNK_SAMPLES = 512
 CHUNK_BYTES = CHUNK_SAMPLES * 2  # 16-bit samples
 
 # Global state

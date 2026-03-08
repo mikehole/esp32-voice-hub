@@ -1,19 +1,19 @@
 # Wake Word Service
 
-Server-side wake word detection for ESP32 Voice Hub using [OpenWakeWord](https://github.com/dscripka/openWakeWord).
+Server-side wake word detection for ESP32 Voice Hub using [Picovoice Porcupine](https://picovoice.ai/platform/porcupine/).
 
 ## Why Server-Side?
 
 Neither Picovoice nor Espressif's wake word solutions support the ESP32-S3's Xtensa LX7 cores natively. Running wake word detection on the server:
 - Simplifies firmware (no ML inference on device)
-- Allows using any wake phrase via synthetic training
-- Uses the same machine that runs OpenClaw
+- Uses Picovoice's accurate, production-ready engine
+- Runs on the same machine as OpenClaw
 
 ## Architecture
 
 ```
-ESP32 (IDLE):           WebSocket Server              Wake Word Service
-I2S mic → 80ms chunks → ─────────────────────────── → OpenWakeWord
+ESP32 (IDLE):           WebSocket Server              Porcupine
+I2S mic → 32ms chunks → ─────────────────────────── → service.py
                                                           │
                         ←── wake_detected ─────────────── │
                                                           
@@ -24,44 +24,57 @@ I2S mic → full audio →  ─── STT (Whisper) ─── OpenClaw Agent ─
 
 ## Setup
 
-### 1. Install dependencies
+### 1. Get Picovoice Access Key
+
+1. Sign up at https://console.picovoice.ai/
+2. Get your free access key (allows 1 custom wake word)
+
+### 2. Install Dependencies
 
 ```bash
 cd wake-word-service
 pip install -r requirements.txt
 ```
 
-### 2. Train the wake word model
+### 3. Set Environment Variables
 
 ```bash
-python train.py
-# Takes 5-15 minutes. Creates models/oi_minerva.tflite
+export PICOVOICE_ACCESS_KEY="your-key-here"
+export OPENAI_API_KEY="sk-..."
+export OPENCLAW_URL="http://localhost:3007"  # optional
+export OPENCLAW_TOKEN="your-hooks-token"      # optional
 ```
 
-### 3. Run the server
+### 4. Run the Server
 
 ```bash
-python server.py \
-    --port 8765 \
-    --openai-api-key YOUR_KEY \
-    --openclaw-url http://localhost:3007 \
-    --openclaw-token YOUR_HOOKS_TOKEN
-```
-
-Or with environment variables:
-```bash
-export OPENAI_API_KEY=sk-...
-export OPENCLAW_URL=http://localhost:3007
-export OPENCLAW_TOKEN=your-hooks-token
 python server.py --port 8765
 ```
+
+### 5. Configure ESP32
+
+In the web admin panel, set:
+- **Wake Word Host:** IP of the machine running server.py
+- **Wake Word Port:** 8765 (default)
+
+## Custom Wake Word
+
+The included model `oi_minerva_linux_v4.ppn` was trained at:
+https://console.picovoice.ai/ppn
+
+To create a new wake word:
+1. Go to Picovoice Console → Porcupine
+2. Enter your wake phrase
+3. Select "Linux (x86_64)" platform
+4. Download the `.ppn` file
+5. Replace `models/oi_minerva_linux_v4.ppn`
 
 ## WebSocket Protocol
 
 ### From ESP32
 
 **Idle audio (continuous):**
-- Binary frames, exactly 2560 bytes (80ms at 16kHz mono 16-bit)
+- Binary frames, exactly 1024 bytes (512 samples at 16kHz mono 16-bit)
 - Sent continuously while device is idle
 
 **Recording start:**
@@ -102,22 +115,17 @@ python server.py --port 8765
 {"type": "tts_end"}
 ```
 
-**Error:**
-```json
-{"type": "error", "message": "Transcription failed"}
-```
-
-## Tuning Wake Word Detection
+## Tuning Sensitivity
 
 Edit `service.py`:
 
-- **THRESHOLD** (default 0.5): Lower = more sensitive, higher = stricter
-- **COOLDOWN_SECONDS** (default 1.0): Time after detection before re-arming
-
-If too many false triggers, raise THRESHOLD to 0.6-0.7.
-If detection is too strict, lower to 0.3-0.4.
-
-For better accuracy, increase `num_steps` in `train.py` to 25000 and retrain.
+```python
+porcupine = pvporcupine.create(
+    access_key=ACCESS_KEY,
+    keyword_paths=[MODEL_PATH],
+    sensitivities=[0.5],  # 0.0-1.0, higher = more sensitive
+)
+```
 
 ## Running as a Service
 
@@ -134,9 +142,8 @@ After=network.target
 Type=simple
 User=youruser
 WorkingDirectory=/path/to/wake-word-service
+Environment=PICOVOICE_ACCESS_KEY=your-key
 Environment=OPENAI_API_KEY=sk-...
-Environment=OPENCLAW_URL=http://localhost:3007
-Environment=OPENCLAW_TOKEN=your-token
 ExecStart=/usr/bin/python3 server.py --port 8765
 Restart=always
 RestartSec=5
@@ -152,7 +159,6 @@ sudo systemctl start esp32-wakeword
 
 ## Files
 
-- `train.py` — Train custom wake word model (run once)
-- `service.py` — Wake word detection subprocess (spawned by server)
+- `service.py` — Porcupine wake word subprocess
 - `server.py` — Main WebSocket server
-- `models/` — Trained wake word models (gitignore'd except committed models)
+- `models/oi_minerva_linux_v4.ppn` — "Oi Minerva" wake word model

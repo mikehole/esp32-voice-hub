@@ -1,102 +1,120 @@
 #!/usr/bin/env python3
 """
 Wake Word Detection Service for ESP32 Voice Hub.
+Uses Picovoice Porcupine for "Oi Minerva" detection.
 
-Reads raw 16kHz mono 16-bit PCM from stdin in 80ms chunks (1280 samples = 2560 bytes).
+Reads raw 16kHz mono 16-bit PCM from stdin.
 Writes "WAKE\n" to stdout when "Oi Minerva" is detected.
-The OpenClaw plugin reads stdout and sends wake_detected to the ESP32.
+The server.py reads stdout and sends wake_detected to the ESP32.
 
 Protocol:
-    stdin:  Raw PCM bytes (2560 bytes per chunk, continuous)
+    stdin:  Raw PCM bytes (512 samples = 1024 bytes per frame at 16kHz)
     stdout: "WAKE\n" when wake word detected
     stderr: Debug/status logging
 
-Usage (standalone test):
-    # Generate test tone and pipe to service
-    python -c "import sys; sys.stdout.buffer.write(b'\\x00' * 2560 * 100)" | python service.py
+Requires:
+    pip install pvporcupine
 
-    # Or with actual audio file (must be 16kHz mono 16-bit PCM)
-    ffmpeg -i test.wav -f s16le -ar 16000 -ac 1 - | python service.py
+Usage (standalone test):
+    export PICOVOICE_ACCESS_KEY="your-key-here"
+    python -c "import sys; sys.stdout.buffer.write(b'\\x00' * 1024 * 100)" | python service.py
 """
 
 import sys
 import os
-import numpy as np
+import struct
+import time
+
+# Picovoice requires an access key (free tier available)
+ACCESS_KEY = os.environ.get("PICOVOICE_ACCESS_KEY", "")
 
 # Model path - relative to this script
-# Using "hey jarvis" as placeholder until custom "oi minerva" model is trained
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "hey_jarvis_v0.1.tflite")
-
-# OpenWakeWord expects exactly 80ms chunks at 16kHz
-CHUNK_SAMPLES = 1280        # 80ms at 16kHz
-BYTES_PER_CHUNK = CHUNK_SAMPLES * 2  # 16-bit = 2 bytes per sample
-
-# Detection threshold — tune based on testing:
-# - Lower (0.3-0.4): More sensitive, may have false triggers
-# - Higher (0.6-0.8): More strict, may miss some detections
-THRESHOLD = 0.5
+MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "oi_minerva_linux_v4.ppn")
 
 # Cooldown after detection (seconds) — prevents double-triggers
-COOLDOWN_SECONDS = 1.0
-COOLDOWN_BYTES = int(16000 * 2 * COOLDOWN_SECONDS)
+COOLDOWN_SECONDS = 1.5
 
 
 def main():
-    # Check if model exists
-    if not os.path.exists(MODEL_PATH):
-        sys.stderr.write(f"[WakeWord] ERROR: Model not found at {MODEL_PATH}\n")
-        sys.stderr.write("[WakeWord] Run 'python train.py' first to generate the model.\n")
+    if not ACCESS_KEY:
+        sys.stderr.write("[WakeWord] ERROR: PICOVOICE_ACCESS_KEY environment variable required\n")
+        sys.stderr.write("[WakeWord] Get a free key at: https://console.picovoice.ai/\n")
         sys.stderr.flush()
         sys.exit(1)
-    
-    # Import openwakeword here so we get a clear error if model is missing first
-    from openwakeword.model import Model
-    
-    sys.stderr.write(f"[WakeWord] Loading model from {MODEL_PATH}\n")
+
+    if not os.path.exists(MODEL_PATH):
+        sys.stderr.write(f"[WakeWord] ERROR: Model not found at {MODEL_PATH}\n")
+        sys.stderr.flush()
+        sys.exit(1)
+
+    # Import here so we get clear error messages above first
+    import pvporcupine
+
+    sys.stderr.write(f"[WakeWord] Loading Porcupine model from {MODEL_PATH}\n")
     sys.stderr.flush()
-    
-    model = Model(wakeword_models=[MODEL_PATH], inference_framework="tflite")
-    
-    sys.stderr.write("[WakeWord] Service ready — listening for 'Oi Minerva'\n")
+
+    try:
+        porcupine = pvporcupine.create(
+            access_key=ACCESS_KEY,
+            keyword_paths=[MODEL_PATH],
+            sensitivities=[0.5],  # 0.0-1.0, higher = more sensitive
+        )
+    except pvporcupine.PorcupineActivationError as e:
+        sys.stderr.write(f"[WakeWord] ERROR: Invalid access key: {e}\n")
+        sys.stderr.flush()
+        sys.exit(1)
+    except pvporcupine.PorcupineError as e:
+        sys.stderr.write(f"[WakeWord] ERROR: Porcupine init failed: {e}\n")
+        sys.stderr.flush()
+        sys.exit(1)
+
+    # Porcupine expects exactly frame_length samples per call
+    frame_length = porcupine.frame_length  # Usually 512 samples
+    sample_rate = porcupine.sample_rate    # Should be 16000
+    bytes_per_frame = frame_length * 2     # 16-bit = 2 bytes per sample
+
+    sys.stderr.write(f"[WakeWord] Porcupine ready — frame_length={frame_length}, sample_rate={sample_rate}\n")
+    sys.stderr.write("[WakeWord] Listening for 'Oi Minerva'...\n")
     sys.stderr.flush()
-    
-    while True:
-        # Read exactly one chunk (blocking)
-        data = sys.stdin.buffer.read(BYTES_PER_CHUNK)
-        
-        if len(data) < BYTES_PER_CHUNK:
-            # stdin closed or EOF — plugin is shutting down
-            sys.stderr.write("[WakeWord] stdin closed, exiting\n")
-            sys.stderr.flush()
-            break
-        
-        # Convert to float32 normalized [-1, 1] for model
-        audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
-        
-        # Run inference
-        prediction = model.predict(audio)
-        
-        # OpenWakeWord normalizes model names
-        # Using "hey_jarvis" as placeholder until custom model is trained
-        score = prediction.get("hey_jarvis", 0.0)
-        
-        if score >= THRESHOLD:
-            # Wake word detected!
-            sys.stdout.write("WAKE\n")
-            sys.stdout.flush()
-            
-            sys.stderr.write(f"[WakeWord] Detected! (score={score:.3f})\n")
-            sys.stderr.flush()
-            
-            # Cooldown: drain audio to prevent immediate re-trigger
-            # This also gives time for the user to start speaking their command
-            drained = 0
-            while drained < COOLDOWN_BYTES:
-                chunk = sys.stdin.buffer.read(min(BYTES_PER_CHUNK, COOLDOWN_BYTES - drained))
-                if len(chunk) == 0:
-                    break
-                drained += len(chunk)
+
+    last_detection_time = 0
+
+    try:
+        while True:
+            # Read exactly one frame
+            data = sys.stdin.buffer.read(bytes_per_frame)
+
+            if len(data) < bytes_per_frame:
+                # stdin closed or EOF
+                sys.stderr.write("[WakeWord] stdin closed, exiting\n")
+                sys.stderr.flush()
+                break
+
+            # Convert bytes to int16 array
+            pcm = struct.unpack(f'{frame_length}h', data)
+
+            # Process frame
+            keyword_index = porcupine.process(pcm)
+
+            if keyword_index >= 0:
+                now = time.time()
+                if now - last_detection_time > COOLDOWN_SECONDS:
+                    # Wake word detected!
+                    sys.stdout.write("WAKE\n")
+                    sys.stdout.flush()
+
+                    sys.stderr.write("[WakeWord] Detected 'Oi Minerva'!\n")
+                    sys.stderr.flush()
+
+                    last_detection_time = now
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        porcupine.delete()
+        sys.stderr.write("[WakeWord] Shutdown complete\n")
+        sys.stderr.flush()
 
 
 if __name__ == "__main__":
