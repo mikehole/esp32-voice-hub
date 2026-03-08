@@ -1,21 +1,20 @@
 /**
- * WebSocket Client for Wake Word Service
- * Using arduinoWebSockets library
+ * Minimal WebSocket Client
+ * Uses WiFiClient directly (no external library)
+ * Only implements what we need for wake word service
  */
 
 #include "ws_client.h"
-
-// Must include WiFi before WebSockets
-#include <WiFi.h>
-#include <WebSocketsClient.h>
-
+#include <WiFiClient.h>
 #include <esp_log.h>
 #include <cstring>
+#include <cstdlib>
+#include <base64.h>
 
 static const char* TAG = "WsClient";
 
-// WebSocket client
-static WebSocketsClient ws;
+// WiFi client
+static WiFiClient client;
 
 // Connection settings
 static char ws_host[64] = "";
@@ -23,14 +22,19 @@ static uint16_t ws_port = 8765;
 
 // State
 static bool ws_connected = false;
-static bool ws_initialized = false;
 
 // Callbacks
 static WsMessageCallback message_callback = nullptr;
 static WsEventCallback event_callback = nullptr;
 
-// Forward declaration
-static void websocket_event(WStype_t type, uint8_t* payload, size_t length);
+// Buffer for incoming frames
+static uint8_t rx_buffer[4096];
+static size_t rx_pos = 0;
+
+// Forward declarations
+static bool ws_handshake();
+static void ws_process_frame();
+static bool ws_send_frame(uint8_t opcode, const uint8_t* data, size_t length);
 
 void ws_set_host(const char* host) {
     strncpy(ws_host, host, sizeof(ws_host) - 1);
@@ -63,47 +67,77 @@ bool ws_init() {
         return false;
     }
 
-    ESP_LOGI(TAG, "Connecting to ws://%s:%d", ws_host, ws_port);
+    ESP_LOGI(TAG, "Connecting to %s:%d", ws_host, ws_port);
 
-    ws.begin(ws_host, ws_port, "/");
-    ws.onEvent(websocket_event);
-    ws.setReconnectInterval(5000);
-    ws.enableHeartbeat(15000, 3000, 2);
+    if (!client.connect(ws_host, ws_port)) {
+        ESP_LOGE(TAG, "TCP connection failed");
+        return false;
+    }
 
-    ws_initialized = true;
+    if (!ws_handshake()) {
+        ESP_LOGE(TAG, "WebSocket handshake failed");
+        client.stop();
+        return false;
+    }
+
+    ws_connected = true;
+    ESP_LOGI(TAG, "WebSocket connected");
+
+    if (event_callback) {
+        event_callback(WS_EVENT_CONNECTED);
+    }
+
     return true;
 }
 
 void ws_disconnect() {
-    if (ws_initialized) {
-        ws.disconnect();
+    if (ws_connected) {
+        // Send close frame
+        ws_send_frame(0x08, nullptr, 0);
+        client.stop();
         ws_connected = false;
-        ws_initialized = false;
+        
+        if (event_callback) {
+            event_callback(WS_EVENT_DISCONNECTED);
+        }
     }
 }
 
 bool ws_is_connected() {
+    if (ws_connected && !client.connected()) {
+        ws_connected = false;
+        if (event_callback) {
+            event_callback(WS_EVENT_DISCONNECTED);
+        }
+    }
     return ws_connected;
 }
 
 void ws_loop() {
-    if (ws_initialized) {
-        ws.loop();
+    if (!ws_connected) return;
+
+    // Check connection
+    if (!client.connected()) {
+        ws_connected = false;
+        if (event_callback) {
+            event_callback(WS_EVENT_DISCONNECTED);
+        }
+        return;
+    }
+
+    // Read available data
+    while (client.available() && rx_pos < sizeof(rx_buffer)) {
+        rx_buffer[rx_pos++] = client.read();
+        ws_process_frame();
     }
 }
 
 bool ws_send_text(const char* text) {
-    if (!ws_connected) {
-        return false;
-    }
-    return ws.sendTXT(text);
+    return ws_send_frame(0x01, (const uint8_t*)text, strlen(text));
 }
 
 bool ws_send_binary(const uint8_t* data, size_t length) {
-    if (!ws_connected) {
-        return false;
-    }
-    return ws.sendBIN(data, length);
+    return ws_send_frame(0x02, data, length);
 }
 
 bool ws_send_json(const char* type) {
@@ -122,50 +156,190 @@ bool ws_send_audio_end() {
     return ws_send_json("audio_end");
 }
 
-// Event handler
-static void websocket_event(WStype_t type, uint8_t* payload, size_t length) {
-    switch (type) {
-        case WStype_DISCONNECTED:
-            ESP_LOGI(TAG, "WebSocket disconnected");
-            ws_connected = false;
-            if (event_callback) {
-                event_callback(WS_EVENT_DISCONNECTED);
+// ============================================================================
+// Internal Functions
+// ============================================================================
+
+static bool ws_handshake() {
+    // Generate random key
+    uint8_t key_bytes[16];
+    for (int i = 0; i < 16; i++) {
+        key_bytes[i] = random(256);
+    }
+    String key = base64::encode(key_bytes, 16);
+
+    // Send HTTP upgrade request
+    client.print("GET / HTTP/1.1\r\n");
+    client.print("Host: ");
+    client.print(ws_host);
+    client.print(":");
+    client.print(ws_port);
+    client.print("\r\n");
+    client.print("Upgrade: websocket\r\n");
+    client.print("Connection: Upgrade\r\n");
+    client.print("Sec-WebSocket-Key: ");
+    client.print(key);
+    client.print("\r\n");
+    client.print("Sec-WebSocket-Version: 13\r\n");
+    client.print("\r\n");
+
+    // Wait for response
+    unsigned long start = millis();
+    while (!client.available() && millis() - start < 5000) {
+        delay(10);
+    }
+
+    if (!client.available()) {
+        return false;
+    }
+
+    // Read response (just check for 101)
+    String response = client.readStringUntil('\n');
+    if (response.indexOf("101") == -1) {
+        ESP_LOGE(TAG, "Bad handshake response: %s", response.c_str());
+        return false;
+    }
+
+    // Skip rest of headers
+    while (client.available()) {
+        String line = client.readStringUntil('\n');
+        if (line == "\r" || line.length() == 0) {
+            break;
+        }
+    }
+
+    return true;
+}
+
+static void ws_process_frame() {
+    // Need at least 2 bytes for header
+    if (rx_pos < 2) return;
+
+    uint8_t opcode = rx_buffer[0] & 0x0F;
+    bool masked = (rx_buffer[1] & 0x80) != 0;
+    size_t payload_len = rx_buffer[1] & 0x7F;
+    size_t header_len = 2;
+
+    // Extended payload length
+    if (payload_len == 126) {
+        if (rx_pos < 4) return;
+        payload_len = (rx_buffer[2] << 8) | rx_buffer[3];
+        header_len = 4;
+    } else if (payload_len == 127) {
+        if (rx_pos < 10) return;
+        // We don't support >64KB frames
+        payload_len = 0;
+        header_len = 10;
+    }
+
+    // Mask key (server shouldn't send masked, but handle it)
+    if (masked) {
+        header_len += 4;
+    }
+
+    // Check if we have full frame
+    size_t frame_len = header_len + payload_len;
+    if (rx_pos < frame_len) return;
+
+    // Extract payload
+    uint8_t* payload = rx_buffer + header_len;
+
+    // Unmask if needed
+    if (masked) {
+        uint8_t* mask = rx_buffer + header_len - 4;
+        for (size_t i = 0; i < payload_len; i++) {
+            payload[i] ^= mask[i % 4];
+        }
+    }
+
+    // Handle frame
+    switch (opcode) {
+        case 0x01:  // Text
+            if (message_callback) {
+                message_callback(WS_MSG_TEXT, payload, payload_len);
             }
             break;
 
-        case WStype_CONNECTED:
-            ESP_LOGI(TAG, "WebSocket connected to %s", payload);
-            ws_connected = true;
-            if (event_callback) {
-                event_callback(WS_EVENT_CONNECTED);
+        case 0x02:  // Binary
+            if (message_callback) {
+                message_callback(WS_MSG_BINARY, payload, payload_len);
             }
             break;
 
-        case WStype_TEXT:
-            if (message_callback && length > 0) {
-                message_callback(WS_MSG_TEXT, payload, length);
-            }
+        case 0x08:  // Close
+            ws_disconnect();
             break;
 
-        case WStype_BIN:
-            if (message_callback && length > 0) {
-                message_callback(WS_MSG_BINARY, payload, length);
-            }
+        case 0x09:  // Ping
+            ws_send_frame(0x0A, payload, payload_len);  // Pong
             break;
 
-        case WStype_ERROR:
-            ESP_LOGE(TAG, "WebSocket error");
-            if (event_callback) {
-                event_callback(WS_EVENT_ERROR);
-            }
-            break;
-
-        case WStype_PING:
-        case WStype_PONG:
-            // Heartbeat, ignore
-            break;
-
-        default:
+        case 0x0A:  // Pong
+            // Ignore
             break;
     }
+
+    // Remove processed frame from buffer
+    if (rx_pos > frame_len) {
+        memmove(rx_buffer, rx_buffer + frame_len, rx_pos - frame_len);
+    }
+    rx_pos -= frame_len;
+}
+
+static bool ws_send_frame(uint8_t opcode, const uint8_t* data, size_t length) {
+    if (!ws_connected || !client.connected()) {
+        return false;
+    }
+
+    // Frame header
+    uint8_t header[14];
+    size_t header_len = 2;
+
+    header[0] = 0x80 | opcode;  // FIN + opcode
+
+    // Payload length + mask bit (client must mask)
+    if (length < 126) {
+        header[1] = 0x80 | length;
+    } else if (length < 65536) {
+        header[1] = 0x80 | 126;
+        header[2] = (length >> 8) & 0xFF;
+        header[3] = length & 0xFF;
+        header_len = 4;
+    } else {
+        header[1] = 0x80 | 127;
+        // 64-bit length (we only use lower 32 bits)
+        header[2] = 0;
+        header[3] = 0;
+        header[4] = 0;
+        header[5] = 0;
+        header[6] = (length >> 24) & 0xFF;
+        header[7] = (length >> 16) & 0xFF;
+        header[8] = (length >> 8) & 0xFF;
+        header[9] = length & 0xFF;
+        header_len = 10;
+    }
+
+    // Mask key
+    uint8_t mask[4];
+    for (int i = 0; i < 4; i++) {
+        mask[i] = random(256);
+        header[header_len++] = mask[i];
+    }
+
+    // Send header
+    client.write(header, header_len);
+
+    // Send masked payload
+    if (data && length > 0) {
+        uint8_t* masked = (uint8_t*)malloc(length);
+        if (!masked) return false;
+        
+        for (size_t i = 0; i < length; i++) {
+            masked[i] = data[i] ^ mask[i % 4];
+        }
+        client.write(masked, length);
+        free(masked);
+    }
+
+    return true;
 }
