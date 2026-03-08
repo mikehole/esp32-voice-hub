@@ -4,6 +4,9 @@
   "description": "ESP32 Voice Hub audio terminal with wake word detection",
   "type": "module",
   "main": "./dist/index.js",
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"
@@ -13,7 +16,7 @@
   },
   "dependencies": {
     "ws": "^8.17.0",
-    "@pv-aspect/porcupine-node": "^3.0.0"
+    "@picovoice/porcupine-node": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

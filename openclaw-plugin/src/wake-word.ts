@@ -2,7 +2,7 @@
  * Wake Word Detection using Picovoice Porcupine
  */
 
-import Porcupine from "@pv-aspect/porcupine-node";
+import { Porcupine } from "@picovoice/porcupine-node";
 
 export interface WakeWordConfig {
   accessKey: string;
