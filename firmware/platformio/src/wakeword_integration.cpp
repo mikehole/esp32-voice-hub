@@ -1,5 +1,6 @@
 /**
  * Wake Word Integration
+ * Using ESP-IDF WebSocket client
  */
 
 #include "wakeword_integration.h"
@@ -9,6 +10,8 @@
 #include "status_ring.h"
 #include "openai_client.h"
 #include "esp_heap_caps.h"
+#include <ArduinoJson.h>
+#include <cstring>
 
 static const char* TAG = "WakeWord";
 
@@ -23,43 +26,32 @@ static size_t tts_buffer_pos = 0;
 static uint32_t tts_sample_rate = 16000;
 
 // Forward declarations
-static void on_wake_detected();
-static void on_transcript(const char* text);
-static void on_tts_start(uint32_t sampleRate, uint32_t byteLength);
-static void on_tts_chunk(const uint8_t* data, size_t length);
-static void on_tts_end();
-static void on_error(const char* message);
-static void on_connected();
-static void on_disconnected();
+static void on_ws_message(WsMessageType type, const uint8_t* data, size_t length);
+static void on_ws_event(WsEventType event);
 static void on_idle_audio(const uint8_t* data, size_t length);
+static void handle_json_message(const char* json);
 
 void wakeword_integration_init() {
     if (initialized) return;
     
     Serial.println("WakeWord: Initializing integration...");
     
-    // Initialize WebSocket client
-    ws_client_init();
-    
     // Configure connection from stored settings
-    ws_client_set_host(wakeword_get_host());
-    ws_client_set_port(wakeword_get_port());
+    ws_set_host(wakeword_get_host());
+    ws_set_port(wakeword_get_port());
     
     // Set up callbacks
-    ws_client_set_on_wake_detected(on_wake_detected);
-    ws_client_set_on_transcript(on_transcript);
-    ws_client_set_on_tts_start(on_tts_start);
-    ws_client_set_on_tts_chunk(on_tts_chunk);
-    ws_client_set_on_tts_end(on_tts_end);
-    ws_client_set_on_error(on_error);
-    ws_client_set_on_connected(on_connected);
-    ws_client_set_on_disconnected(on_disconnected);
+    ws_set_message_callback(on_ws_message);
+    ws_set_event_callback(on_ws_event);
     
     // Set up idle audio callback (sends to WebSocket)
     audio_set_idle_callback(on_idle_audio);
     
     // Connect to server
-    ws_client_connect();
+    if (!ws_init()) {
+        Serial.println("WakeWord: Failed to connect to server");
+        return;
+    }
     
     initialized = true;
     Serial.println("WakeWord: Integration initialized");
@@ -68,12 +60,12 @@ void wakeword_integration_init() {
 void wakeword_integration_loop() {
     if (!initialized) return;
     
-    // Pump WebSocket events
-    ws_client_loop();
+    // ESP-IDF WebSocket runs in its own task
+    ws_loop();
 }
 
 bool wakeword_integration_is_active() {
-    return initialized && enabled && ws_client_is_connected();
+    return initialized && enabled && ws_is_connected();
 }
 
 void wakeword_start_recording() {
@@ -107,23 +99,25 @@ void wakeword_stop_recording() {
     avatar_set_state(STATE_THINKING);
     status_ring_show(STATE_THINKING);
     
-    // Send to server via WebSocket
-    ws_client_start_recording(16000, audio_size);
+    // Send audio_start message
+    ws_send_audio_start(16000);
     
-    // Send in chunks
+    // Send audio data in chunks
     const size_t CHUNK_SIZE = 1024;
     for (size_t i = 0; i < audio_size; i += CHUNK_SIZE) {
         size_t len = (i + CHUNK_SIZE < audio_size) ? CHUNK_SIZE : (audio_size - i);
-        ws_client_send_audio_chunk(audio_data + i, len);
+        ws_send_binary(audio_data + i, len);
     }
     
-    ws_client_end_recording();
+    // Send audio_end message
+    ws_send_audio_end();
+    
     Serial.printf("WakeWord: Sent %u bytes to server\n", audio_size);
 }
 
 void wakeword_set_enabled(bool en) {
     enabled = en;
-    if (en && initialized && ws_client_is_connected()) {
+    if (en && initialized && ws_is_connected()) {
         // Resume idle streaming
         audio_start_idle_stream();
     } else {
@@ -136,119 +130,146 @@ bool wakeword_is_enabled() {
 }
 
 // ============================================================================
-// Callbacks
+// WebSocket Callbacks
 // ============================================================================
 
-static void on_wake_detected() {
-    Serial.println("WakeWord: Wake detected - starting recording");
-    
-    // Play acknowledgment beep
-    audio_play_ack_beep();
-    
-    // Start recording
-    wakeword_start_recording();
-}
-
-static void on_transcript(const char* text) {
-    Serial.printf("WakeWord: Transcript: %s\n", text);
-    // Avatar is already in thinking state, transcript is informational
-}
-
-static void on_tts_start(uint32_t sampleRate, uint32_t byteLength) {
-    Serial.printf("WakeWord: TTS start - %u bytes @ %u Hz\n", byteLength, sampleRate);
-    
-    // Allocate TTS buffer in PSRAM
-    if (tts_buffer) {
-        heap_caps_free(tts_buffer);
+static void on_ws_message(WsMessageType type, const uint8_t* data, size_t length) {
+    if (type == WS_MSG_TEXT) {
+        // JSON message
+        char* json = (char*)malloc(length + 1);
+        if (json) {
+            memcpy(json, data, length);
+            json[length] = '\0';
+            handle_json_message(json);
+            free(json);
+        }
+    } else if (type == WS_MSG_BINARY) {
+        // TTS audio chunk
+        if (tts_buffer && tts_buffer_pos + length <= tts_buffer_size) {
+            memcpy(tts_buffer + tts_buffer_pos, data, length);
+            tts_buffer_pos += length;
+        }
     }
-    
-    tts_buffer = (uint8_t*)heap_caps_malloc(byteLength, MALLOC_CAP_SPIRAM);
-    if (!tts_buffer) {
-        Serial.println("WakeWord: Failed to allocate TTS buffer");
+}
+
+static void on_ws_event(WsEventType event) {
+    switch (event) {
+        case WS_EVENT_CONNECTED:
+            Serial.println("WakeWord: Connected to server");
+            if (enabled) {
+                audio_start_idle_stream();
+            }
+            break;
+            
+        case WS_EVENT_DISCONNECTED:
+            Serial.println("WakeWord: Disconnected from server");
+            audio_stop_idle_stream();
+            break;
+            
+        case WS_EVENT_ERROR:
+            Serial.println("WakeWord: WebSocket error");
+            status_ring_hide();
+            avatar_set_state(STATE_IDLE);
+            if (enabled) {
+                audio_start_idle_stream();
+            }
+            break;
+    }
+}
+
+static void handle_json_message(const char* json) {
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, json);
+    if (err) {
+        Serial.printf("WakeWord: JSON parse error: %s\n", err.c_str());
         return;
     }
     
-    tts_buffer_size = byteLength;
-    tts_buffer_pos = 0;
-    tts_sample_rate = sampleRate;
+    const char* type = doc["type"];
+    if (!type) return;
     
-    // Switch to speaking state
-    avatar_set_state(STATE_SPEAKING);
-    status_ring_show(STATE_SPEAKING);
-}
-
-static void on_tts_chunk(const uint8_t* data, size_t length) {
-    if (!tts_buffer || tts_buffer_pos + length > tts_buffer_size) {
-        Serial.println("WakeWord: TTS buffer overflow or not allocated");
-        return;
-    }
-    
-    memcpy(tts_buffer + tts_buffer_pos, data, length);
-    tts_buffer_pos += length;
-}
-
-static void on_tts_end() {
-    Serial.printf("WakeWord: TTS end - received %u bytes\n", tts_buffer_pos);
-    
-    if (tts_buffer && tts_buffer_pos > 0) {
-        // Play the TTS audio
-        audio_play(tts_buffer, tts_buffer_pos, tts_sample_rate);
+    if (strcmp(type, "wake_detected") == 0) {
+        Serial.println("WakeWord: Wake detected - starting recording");
+        audio_play_ack_beep();
+        wakeword_start_recording();
         
-        // Wait for playback to finish
-        while (audio_is_playing()) {
-            ws_client_loop();  // Keep WebSocket alive
-            delay(50);
+    } else if (strcmp(type, "transcript") == 0) {
+        const char* text = doc["text"];
+        if (text) {
+            Serial.printf("WakeWord: Transcript: %s\n", text);
         }
         
-        // Free buffer
-        heap_caps_free(tts_buffer);
-        tts_buffer = nullptr;
-        tts_buffer_size = 0;
+    } else if (strcmp(type, "tts_start") == 0) {
+        uint32_t sampleRate = doc["sampleRate"] | 16000;
+        uint32_t byteLength = doc["byteLength"] | 0;
+        
+        Serial.printf("WakeWord: TTS start - %u bytes @ %u Hz\n", byteLength, sampleRate);
+        
+        // Allocate TTS buffer in PSRAM
+        if (tts_buffer) {
+            heap_caps_free(tts_buffer);
+        }
+        
+        tts_buffer = (uint8_t*)heap_caps_malloc(byteLength, MALLOC_CAP_SPIRAM);
+        if (!tts_buffer) {
+            Serial.println("WakeWord: Failed to allocate TTS buffer");
+            return;
+        }
+        
+        tts_buffer_size = byteLength;
         tts_buffer_pos = 0;
+        tts_sample_rate = sampleRate;
+        
+        avatar_set_state(STATE_SPEAKING);
+        status_ring_show(STATE_SPEAKING);
+        
+    } else if (strcmp(type, "tts_end") == 0) {
+        Serial.printf("WakeWord: TTS end - received %u bytes\n", tts_buffer_pos);
+        
+        if (tts_buffer && tts_buffer_pos > 0) {
+            // Play the TTS audio
+            audio_play(tts_buffer, tts_buffer_pos, tts_sample_rate);
+            
+            // Wait for playback to finish
+            while (audio_is_playing()) {
+                delay(50);
+            }
+            
+            // Free buffer
+            heap_caps_free(tts_buffer);
+            tts_buffer = nullptr;
+            tts_buffer_size = 0;
+            tts_buffer_pos = 0;
+        }
+        
+        // Return to idle
+        status_ring_hide();
+        avatar_set_state(STATE_IDLE);
+        
+        // Resume idle streaming
+        if (enabled) {
+            audio_start_idle_stream();
+        }
+        
+    } else if (strcmp(type, "error") == 0) {
+        const char* message = doc["message"];
+        Serial.printf("WakeWord: Error - %s\n", message ? message : "unknown");
+        
+        status_ring_hide();
+        avatar_set_state(STATE_IDLE);
+        
+        if (enabled) {
+            audio_start_idle_stream();
+        }
+        
+    } else if (strcmp(type, "pong") == 0) {
+        // Heartbeat response, ignore
     }
-    
-    // Return to idle
-    status_ring_hide();
-    avatar_set_state(STATE_IDLE);
-    
-    // Resume idle streaming for next wake word
-    if (enabled) {
-        audio_start_idle_stream();
-    }
-}
-
-static void on_error(const char* message) {
-    Serial.printf("WakeWord: Error - %s\n", message);
-    
-    // Return to idle state
-    status_ring_hide();
-    avatar_set_state(STATE_IDLE);
-    
-    // Resume idle streaming
-    if (enabled) {
-        audio_start_idle_stream();
-    }
-}
-
-static void on_connected() {
-    Serial.println("WakeWord: Connected to server");
-    
-    // Start idle streaming for wake word detection
-    if (enabled) {
-        audio_start_idle_stream();
-    }
-}
-
-static void on_disconnected() {
-    Serial.println("WakeWord: Disconnected from server");
-    
-    // Stop idle streaming (will auto-reconnect)
-    audio_stop_idle_stream();
 }
 
 static void on_idle_audio(const uint8_t* data, size_t length) {
-    // Forward idle audio chunks to WebSocket server
-    if (ws_client_is_connected()) {
-        ws_client_send_idle_audio(data, length);
+    // Forward idle audio chunks to WebSocket server for wake word detection
+    if (ws_is_connected()) {
+        ws_send_binary(data, length);
     }
 }
