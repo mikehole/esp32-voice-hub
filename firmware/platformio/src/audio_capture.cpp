@@ -5,6 +5,7 @@
 
 #include "audio_capture.h"
 #include "audio_config.h"
+#include <math.h>
 #include "driver/i2s_pdm.h"
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
@@ -216,6 +217,9 @@ bool audio_start_recording() {
     if (recording || playing) {
         return false;
     }
+    
+    // Stop idle streaming first (it has the mic channel enabled)
+    audio_stop_idle_stream();
     
     // Enable mic channel
     esp_err_t err = i2s_channel_enable(rx_chan);
@@ -504,4 +508,166 @@ void audio_set_volume(int vol) {
 
 int audio_get_volume() {
     return playback_volume;
+}
+
+// ============================================================================
+// Idle streaming for wake word detection
+// ============================================================================
+
+// Idle stream state
+static volatile bool idle_streaming = false;
+static TaskHandle_t idle_stream_task_handle = NULL;
+static IdleAudioCallback idle_audio_callback = NULL;
+
+// 80ms at 16kHz = 1280 samples = 2560 bytes (matches OpenWakeWord chunk size)
+#define IDLE_CHUNK_SAMPLES 1280
+#define IDLE_CHUNK_BYTES (IDLE_CHUNK_SAMPLES * sizeof(int16_t))
+
+void audio_set_idle_callback(IdleAudioCallback cb) {
+    idle_audio_callback = cb;
+}
+
+// Idle streaming task - continuously reads 80ms chunks and calls callback
+static void idle_stream_task(void* param) {
+    int16_t* buf = (int16_t*)heap_caps_malloc(IDLE_CHUNK_BYTES, MALLOC_CAP_INTERNAL);
+    if (!buf) {
+        Serial.println("Audio: Failed to allocate idle stream buffer");
+        idle_streaming = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    Serial.println("Audio: Idle stream task started");
+    
+    // Need to enable mic channel for idle streaming
+    // Note: This will be disabled when recording starts
+    esp_err_t err = i2s_channel_enable(rx_chan);
+    if (err != ESP_OK) {
+        Serial.printf("Audio: Failed to enable RX for idle: %d\n", err);
+        heap_caps_free(buf);
+        idle_streaming = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    while (idle_streaming) {
+        size_t bytes_read = 0;
+        
+        // Read exactly 80ms of audio
+        err = i2s_channel_read(rx_chan, buf, IDLE_CHUNK_BYTES, &bytes_read, pdMS_TO_TICKS(100));
+        
+        if (err == ESP_OK && bytes_read == IDLE_CHUNK_BYTES) {
+            if (idle_audio_callback) {
+                idle_audio_callback((uint8_t*)buf, bytes_read);
+            }
+        }
+        
+        // Small yield to prevent starving other tasks
+        taskYIELD();
+    }
+    
+    // Disable mic when stopping idle stream
+    i2s_channel_disable(rx_chan);
+    
+    heap_caps_free(buf);
+    idle_stream_task_handle = NULL;
+    Serial.println("Audio: Idle stream task stopped");
+    vTaskDelete(NULL);
+}
+
+void audio_start_idle_stream() {
+    if (idle_streaming || recording || playing) {
+        return;
+    }
+    
+    idle_streaming = true;
+    
+    // Create task on core 0 (same as other audio work)
+    BaseType_t result = xTaskCreatePinnedToCore(
+        idle_stream_task,
+        "idle_stream",
+        4096,
+        NULL,
+        1,  // Low priority (below recording/playback)
+        &idle_stream_task_handle,
+        0   // Core 0
+    );
+    
+    if (result != pdPASS) {
+        Serial.println("Audio: Failed to create idle stream task");
+        idle_streaming = false;
+    }
+}
+
+void audio_stop_idle_stream() {
+    if (!idle_streaming) {
+        return;
+    }
+    
+    idle_streaming = false;
+    
+    // Wait for task to finish (with timeout)
+    int timeout = 20;  // 200ms max
+    while (idle_stream_task_handle != NULL && timeout > 0) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        timeout--;
+    }
+    
+    // Force cleanup if needed
+    if (idle_stream_task_handle != NULL) {
+        Serial.println("Audio: Force stopping idle stream task");
+        vTaskDelete(idle_stream_task_handle);
+        idle_stream_task_handle = NULL;
+        i2s_channel_disable(rx_chan);
+    }
+}
+
+bool audio_is_idle_streaming() {
+    return idle_streaming;
+}
+
+// ============================================================================
+// Acknowledgment beep
+// ============================================================================
+
+void audio_play_ack_beep() {
+    // 100ms 880Hz tone - short audible confirmation
+    const int RATE = 16000;
+    const int SAMPLES = RATE / 10;  // 100ms
+    const int STEREO_SIZE = SAMPLES * 2 * 2;  // stereo, 16-bit
+    
+    // Allocate stereo buffer
+    int16_t* buf = (int16_t*)heap_caps_malloc(STEREO_SIZE, MALLOC_CAP_INTERNAL);
+    if (!buf) {
+        Serial.println("Audio: Failed to allocate beep buffer");
+        return;
+    }
+    
+    // Generate stereo 880Hz tone with fade-in/out
+    for (int i = 0; i < SAMPLES; i++) {
+        // Calculate envelope (fade in first 10%, fade out last 10%)
+        float envelope = 1.0f;
+        int fade_samples = SAMPLES / 10;
+        if (i < fade_samples) {
+            envelope = (float)i / fade_samples;
+        } else if (i > SAMPLES - fade_samples) {
+            envelope = (float)(SAMPLES - i) / fade_samples;
+        }
+        
+        // Generate sine wave with envelope
+        int16_t sample = (int16_t)(2000.0f * envelope * sinf(2.0f * M_PI * 880.0f * i / RATE));
+        buf[i * 2] = sample;      // Left
+        buf[i * 2 + 1] = sample;  // Right
+    }
+    
+    // Play directly (blocking, but it's only 100ms)
+    i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(RATE);
+    i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
+    i2s_channel_enable(tx_chan);
+    
+    size_t written;
+    i2s_channel_write(tx_chan, buf, STEREO_SIZE, &written, pdMS_TO_TICKS(200));
+    
+    i2s_channel_disable(tx_chan);
+    heap_caps_free(buf);
 }

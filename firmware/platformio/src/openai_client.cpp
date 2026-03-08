@@ -70,8 +70,9 @@ static char last_error[256] = {0};
 // OpenAI API endpoint
 static const char* WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 
-// Forward declaration
+// Forward declarations
 static void load_openclaw_endpoint();
+static void load_wakeword_settings();
 
 void openai_init() {
     prefs.begin(PREF_NAMESPACE, true);  // Read-only
@@ -84,8 +85,9 @@ void openai_init() {
     }
     prefs.end();
     
-    // Also load OpenClaw endpoint
+    // Also load OpenClaw and wake word settings
     load_openclaw_endpoint();
+    load_wakeword_settings();
 }
 
 void openai_set_api_key(const char* key) {
@@ -1033,4 +1035,58 @@ bool openclaw_voice_hook(const char* audio_url, const char* callback_url) {
     
     snprintf(last_error, sizeof(last_error), "Hook HTTP %d", httpCode);
     return false;
+}
+
+// ============== Wake Word Server Settings ==============
+
+static const char* PREF_WAKEWORD_HOST = "ww_host";
+static const char* PREF_WAKEWORD_PORT = "ww_port";
+
+static char wakeword_host[64] = "192.168.1.100";
+static uint16_t wakeword_port = 8765;
+
+void wakeword_set_host(const char* host) {
+    strncpy(wakeword_host, host, sizeof(wakeword_host) - 1);
+    wakeword_host[sizeof(wakeword_host) - 1] = '\0';
+    
+    prefs.begin(PREF_NAMESPACE, false);
+    prefs.putString(PREF_WAKEWORD_HOST, wakeword_host);
+    prefs.end();
+    
+    Serial.printf("WakeWord: Host saved: %s\n", wakeword_host);
+}
+
+void wakeword_set_port(uint16_t port) {
+    wakeword_port = port;
+    
+    prefs.begin(PREF_NAMESPACE, false);
+    prefs.putUShort(PREF_WAKEWORD_PORT, wakeword_port);
+    prefs.end();
+    
+    Serial.printf("WakeWord: Port saved: %d\n", wakeword_port);
+}
+
+bool wakeword_has_config() {
+    return strlen(wakeword_host) > 0;
+}
+
+const char* wakeword_get_host() {
+    return wakeword_host;
+}
+
+uint16_t wakeword_get_port() {
+    return wakeword_port;
+}
+
+// Load wake word settings from NVS (should be called in openai_init after load_openclaw_endpoint)
+static void load_wakeword_settings() {
+    prefs.begin(PREF_NAMESPACE, true);
+    String host = prefs.getString(PREF_WAKEWORD_HOST, "192.168.1.100");
+    if (host.length() > 0) {
+        strncpy(wakeword_host, host.c_str(), sizeof(wakeword_host) - 1);
+    }
+    wakeword_port = prefs.getUShort(PREF_WAKEWORD_PORT, 8765);
+    prefs.end();
+    
+    Serial.printf("WakeWord: Settings loaded - %s:%d\n", wakeword_host, wakeword_port);
 }

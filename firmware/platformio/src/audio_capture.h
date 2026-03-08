@@ -47,4 +47,15 @@ const uint8_t* audio_get_last_recording(size_t* out_size);
 void audio_set_volume(int vol);
 int audio_get_volume();
 
+// Idle streaming for wake word detection
+// Callback receives 80ms chunks (1280 samples = 2560 bytes at 16kHz)
+typedef void (*IdleAudioCallback)(const uint8_t* data, size_t length);
+void audio_set_idle_callback(IdleAudioCallback cb);
+void audio_start_idle_stream();
+void audio_stop_idle_stream();
+bool audio_is_idle_streaming();
+
+// Play a short acknowledgment beep (100ms, 880Hz)
+void audio_play_ack_beep();
+
 #endif // AUDIO_CAPTURE_H

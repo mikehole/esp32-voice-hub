@@ -21,6 +21,7 @@
 #include "status_ring.h"
 #include "notification.h"
 #include "lvgl_port.h"
+#include "wakeword_integration.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -437,18 +438,30 @@ void check_touch() {
             if (audio_is_recording()) {
                 // Currently recording - stop and process
                 Serial.println("Tap - stop recording");
-                size_t audio_size = 0;
-                const uint8_t* audio_data = audio_stop_recording(&audio_size);
-                Serial.printf("Audio captured: %u bytes\n", audio_size);
                 
-                // Process voice command
-                process_voice_command(audio_data, audio_size);
+                if (wakeword_integration_is_active()) {
+                    // Use wake word integration (WebSocket)
+                    wakeword_stop_recording();
+                } else {
+                    // Fall back to original HTTP hook method
+                    size_t audio_size = 0;
+                    const uint8_t* audio_data = audio_stop_recording(&audio_size);
+                    Serial.printf("Audio captured: %u bytes\n", audio_size);
+                    process_voice_command(audio_data, audio_size);
+                }
             } else {
                 // Not recording - start
                 Serial.println("Tap - start recording");
-                if (audio_start_recording()) {
-                    avatar_set_state(STATE_RECORDING);  // Listening pose
-                    status_ring_show(STATE_RECORDING);  // Red pulsing ring
+                
+                if (wakeword_integration_is_active()) {
+                    // Use wake word integration (WebSocket)
+                    wakeword_start_recording();
+                } else {
+                    // Fall back to original method
+                    if (audio_start_recording()) {
+                        avatar_set_state(STATE_RECORDING);
+                        status_ring_show(STATE_RECORDING);
+                    }
                 }
             }
             was_touched = touched;
@@ -588,6 +601,9 @@ void loop() {
     // Use mutex-protected LVGL handler
     lvgl_port_task_handler();
     
+    // Wake word integration loop (WebSocket events)
+    wakeword_integration_loop();
+    
     // Check voice processing status (background task)
     check_voice_processing();
     
@@ -609,6 +625,9 @@ void loop() {
             avatar_set_state(STATE_IDLE);
             status_ring_hide();
             Serial.println("WiFi connected - ready!");
+            
+            // Initialize wake word integration now that WiFi is connected
+            wakeword_integration_init();
         } else if (wifi_state == WIFI_STATE_CONNECTING) {
             // Connecting - show zapped avatar WITH spinning ring!
             avatar_set_state(STATE_CONNECTING);

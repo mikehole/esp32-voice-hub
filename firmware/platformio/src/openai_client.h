@@ -54,4 +54,11 @@ char* openclaw_send_with_history(const char* message);
 // Returns true if hook was triggered successfully (202 Accepted)
 bool openclaw_voice_hook(const char* audio_url, const char* callback_url);
 
+// Wake word server settings (WebSocket)
+void wakeword_set_host(const char* host);  // e.g., "192.168.1.100"
+void wakeword_set_port(uint16_t port);     // e.g., 8765
+bool wakeword_has_config();
+const char* wakeword_get_host();
+uint16_t wakeword_get_port();
+
 #endif // OPENAI_CLIENT_H

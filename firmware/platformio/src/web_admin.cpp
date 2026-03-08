@@ -194,7 +194,7 @@ static esp_err_t status_handler(httpd_req_t *req) {
     int brightness = get_brightness ? get_brightness() : 100;
     
     snprintf(json, sizeof(json),
-        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\",\"openclawUrl\":\"%s\",\"openclawToken\":\"%s\",\"sdCard\":\"%s\",\"conversationCount\":%d}",
+        "{\"ip\":\"%s\",\"uptime\":\"%s\",\"freeHeap\":\"%u KB\",\"freePsram\":\"%u KB\",\"rssi\":%d,\"brightness\":%d,\"openaiKey\":\"%s\",\"openclawUrl\":\"%s\",\"openclawToken\":\"%s\",\"wakewordHost\":\"%s\",\"wakewordPort\":%d,\"sdCard\":\"%s\",\"conversationCount\":%d}",
         wifi_manager_get_ip().c_str(),
         uptime,
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024,
@@ -204,6 +204,8 @@ static esp_err_t status_handler(httpd_req_t *req) {
         openai_get_api_key(),
         openclaw_get_endpoint(),
         openclaw_get_token(),
+        wakeword_get_host(),
+        wakeword_get_port(),
         conversation_get_sd_info(),
         conversation_get_count()
     );
