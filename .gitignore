@@ -36,3 +36,4 @@ avatar-poses/*.json
 avatar-poses/*.html
 avatar-poses/thinking/*.json
 avatar-poses/thinking/*.html
+.env
