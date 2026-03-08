@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  wakeword:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - PICOVOICE_ACCESS_KEY=${PICOVOICE_ACCESS_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_URL=${OPENCLAW_URL:-}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+    restart: unless-stopped
