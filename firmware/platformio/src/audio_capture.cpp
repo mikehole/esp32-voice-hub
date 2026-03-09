@@ -606,19 +606,28 @@ void audio_stop_idle_stream() {
     
     idle_streaming = false;
     
-    // Wait for task to finish (with timeout)
-    int timeout = 20;  // 200ms max
+    // Wait for task to finish (with longer timeout to allow i2s_channel_read to complete)
+    // i2s_channel_read has 100ms timeout, plus processing time, so wait up to 500ms
+    int timeout = 50;  // 500ms max
     while (idle_stream_task_handle != NULL && timeout > 0) {
         vTaskDelay(pdMS_TO_TICKS(10));
         timeout--;
     }
     
-    // Force cleanup if needed
+    // If task is still running, it's likely stuck - but DON'T force delete
+    // as that can corrupt FreeRTOS queues. Just log and hope it exits.
     if (idle_stream_task_handle != NULL) {
-        Serial.println("Audio: Force stopping idle stream task");
-        vTaskDelete(idle_stream_task_handle);
-        idle_stream_task_handle = NULL;
+        Serial.println("Audio: WARNING - idle stream task did not exit gracefully");
+        // Don't use vTaskDelete here - it causes queue corruption crashes
+        // The task should eventually exit on its own when it sees idle_streaming = false
+        // Just disable the channel to unstick it
         i2s_channel_disable(rx_chan);
+        
+        // Give it one more chance
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (idle_stream_task_handle != NULL) {
+            Serial.println("Audio: Idle stream task still running, continuing anyway");
+        }
     }
 }
 
