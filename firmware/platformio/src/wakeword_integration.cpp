@@ -61,11 +61,25 @@ void wakeword_integration_init() {
 static unsigned long last_reconnect_attempt = 0;
 static const unsigned long RECONNECT_INTERVAL = 5000;
 
+// Recording keepalive - send pings to prevent connection timeout
+static unsigned long last_recording_ping = 0;
+static const unsigned long RECORDING_PING_INTERVAL = 1000;  // 1 second
+
 void wakeword_integration_loop() {
     if (!initialized) return;
     
     // Run WebSocket loop
     ws_loop();
+    
+    // Send keepalive pings during recording to prevent connection timeout
+    // (idle audio stream is stopped during recording, so we need explicit pings)
+    if (audio_is_recording() && ws_is_connected()) {
+        unsigned long now = millis();
+        if (now - last_recording_ping > RECORDING_PING_INTERVAL) {
+            ws_send_ping();
+            last_recording_ping = now;
+        }
+    }
     
     // Auto-reconnect if disconnected
     if (enabled && !ws_is_connected()) {
@@ -89,6 +103,9 @@ void wakeword_start_recording() {
     
     // Stop idle streaming, start recording
     audio_stop_idle_stream();
+    
+    // Reset ping timer for recording keepalive
+    last_recording_ping = millis();
     
     if (audio_start_recording()) {
         avatar_set_state(STATE_RECORDING);

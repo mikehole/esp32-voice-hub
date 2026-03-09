@@ -47,3 +47,4 @@ bool ws_send_binary(const uint8_t* data, size_t length);
 bool ws_send_json(const char* type);
 bool ws_send_audio_start(int sampleRate);
 bool ws_send_audio_end();
+bool ws_send_ping();

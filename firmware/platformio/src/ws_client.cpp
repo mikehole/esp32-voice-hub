@@ -235,6 +235,10 @@ bool ws_send_audio_end() {
     return ws_send_json("audio_end");
 }
 
+bool ws_send_ping() {
+    return ws_send_frame(0x09, nullptr, 0);  // WebSocket ping frame
+}
+
 // ============================================================================
 // Internal Functions
 // ============================================================================
