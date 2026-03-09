@@ -6,6 +6,7 @@ idf_component_register(
         "ota_update.c"
         "display.c"
         "audio.c"
+        "esp_lcd_sh8601.c"
     INCLUDE_DIRS "."
     REQUIRES 
         esp_wifi
@@ -20,4 +21,5 @@ idf_component_register(
         bootloader_support
         esp_partition
         app_update
+        esp_timer
 )
