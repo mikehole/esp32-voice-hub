@@ -1,0 +1,11 @@
+# ESP32 Voice Hub Partition Table
+# Name,   Type, SubType, Offset,  Size, Flags
+# Note: 16MB flash, need space for 2 OTA partitions + NVS + model storage
+
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 0x200000,
+ota_0,    app,  ota_0,   0x210000,0x200000,
+ota_1,    app,  ota_1,   0x410000,0x200000,
+nvs_key,  data, nvs_keys,0x610000,0x1000,
+model,    data, spiffs,  0x611000,0x9EF000,

@@ -1,0 +1,4 @@
+dependencies:
+  lvgl/lvgl: "^8.4.0"
+  espressif/cJSON: "^1.7.0"
+  espressif/esp_lcd_gc9a01: "^2.0.0"
