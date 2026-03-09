@@ -21,7 +21,6 @@
 #include "esp_afe_sr_iface.h"
 #include "esp_afe_sr_models.h"
 #include "esp_afe_config.h"
-#include "esp_partition.h"
 #include "model_path.h"
 
 static const char *TAG = "wakeword";
@@ -106,11 +105,9 @@ bool wakeword_init(void)
         return false;
     }
     
-    // Initialize SPIFFS and load models from the "model" partition
-    ESP_LOGI(TAG, "Loading SR models from SPIFFS...");
-    srmodel_list_t *models = srmodel_spiffs_init(&(esp_partition_t){
-        .label = "model"
-    });
+    // Load models from the "model" partition (packed binary format)
+    ESP_LOGI(TAG, "Loading SR models from partition...");
+    srmodel_list_t *models = esp_srmodel_init("model");
     if (!models || models->num == 0) {
         ESP_LOGE(TAG, "Failed to load SR models - check if partition is flashed");
         return false;
