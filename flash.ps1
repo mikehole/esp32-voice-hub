@@ -15,17 +15,22 @@
 .PARAMETER BuildOnly
     Only build, don't flash
 
+.PARAMETER Clean
+    Remove build directory before building (fixes stale cache issues)
+
 .EXAMPLE
     .\flash.ps1
     .\flash.ps1 -Port COM3
     .\flash.ps1 -Monitor
     .\flash.ps1 -BuildOnly
+    .\flash.ps1 -Clean
 #>
 
 param(
     [string]$Port = "",
     [switch]$Monitor,
-    [switch]$BuildOnly
+    [switch]$BuildOnly,
+    [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +65,24 @@ if (-not (Test-Path $FirmwareDir)) {
 
 Push-Location $FirmwareDir
 try {
+    # Check for stale build cache (different IDF_PATH)
+    $BuildDir = Join-Path $FirmwareDir "build"
+    $CacheFile = Join-Path $BuildDir "CMakeCache.txt"
+    if (Test-Path $CacheFile) {
+        $CacheContent = Get-Content $CacheFile -Raw
+        if ($CacheContent -notmatch [regex]::Escape($IdfPath)) {
+            Write-Host "Detected stale build cache from different ESP-IDF path" -ForegroundColor Yellow
+            $Clean = $true
+        }
+    }
+
+    # Clean build directory if requested or stale
+    if ($Clean -and (Test-Path $BuildDir)) {
+        Write-Host "Cleaning build directory..." -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $BuildDir
+        Write-Host "Build directory removed" -ForegroundColor Green
+    }
+
     # Build
     Write-Host ""
     Write-Host "Building firmware..." -ForegroundColor Cyan
