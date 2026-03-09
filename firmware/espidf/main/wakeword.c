@@ -168,9 +168,9 @@ bool wakeword_start(void)
         return false;
     }
     
-    // Start tasks
-    xTaskCreatePinnedToCore(feed_task, "ww_feed", 4096, NULL, 5, &feed_task_handle, 0);
-    xTaskCreatePinnedToCore(detect_task, "ww_detect", 4096, NULL, 5, &wakeword_task_handle, 1);
+    // Start tasks (ESP-SR needs larger stacks)
+    xTaskCreatePinnedToCore(feed_task, "ww_feed", 8192, NULL, 5, &feed_task_handle, 0);
+    xTaskCreatePinnedToCore(detect_task, "ww_detect", 8192, NULL, 5, &wakeword_task_handle, 1);
     
     display_set_state(DISPLAY_STATE_IDLE);
     ESP_LOGI(TAG, "Wake word detection started");
