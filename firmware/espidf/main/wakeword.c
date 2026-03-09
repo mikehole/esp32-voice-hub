@@ -36,7 +36,7 @@ static TaskHandle_t wakeword_task_handle = NULL;
 static TaskHandle_t feed_task_handle = NULL;
 
 // Audio buffer for AFE feed
-#define FEED_CHUNK_SIZE 512  // Samples per chunk (32ms at 16kHz)
+static int feed_chunk_size = 0;  // Set from AFE after init
 static int16_t *feed_buffer = NULL;
 
 // Callback when wake word detected
@@ -45,20 +45,23 @@ static wakeword_callback_t wakeword_callback = NULL;
 // Feed task - continuously sends audio to AFE
 static void feed_task(void *arg)
 {
-    ESP_LOGI(TAG, "Feed task started");
+    ESP_LOGI(TAG, "Feed task started, chunk size: %d samples", feed_chunk_size);
     
-    size_t bytes_to_read = FEED_CHUNK_SIZE * sizeof(int16_t);
+    size_t bytes_to_read = feed_chunk_size * sizeof(int16_t);
     
     while (wakeword_enabled) {
-        // Read from mic
+        // Read from mic - blocks until we have enough data
         size_t bytes_read = audio_record_chunk((uint8_t *)feed_buffer, bytes_to_read);
         
-        if (bytes_read > 0) {
+        if (bytes_read == bytes_to_read) {
             // Feed to AFE
             afe_handle->feed(afe_data, feed_buffer);
+        } else if (bytes_read > 0) {
+            ESP_LOGW(TAG, "Partial read: %d/%d bytes", bytes_read, bytes_to_read);
         }
         
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // Small yield to prevent watchdog
+        taskYIELD();
     }
     
     ESP_LOGI(TAG, "Feed task stopped");
@@ -98,13 +101,6 @@ bool wakeword_init(void)
 {
     ESP_LOGI(TAG, "Initializing wake word detection...");
     
-    // Allocate feed buffer
-    feed_buffer = heap_caps_malloc(FEED_CHUNK_SIZE * sizeof(int16_t), MALLOC_CAP_INTERNAL);
-    if (!feed_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate feed buffer");
-        return false;
-    }
-    
     // Load models from the "model" partition (packed binary format)
     ESP_LOGI(TAG, "Loading SR models from partition...");
     srmodel_list_t *models = esp_srmodel_init("model");
@@ -128,8 +124,14 @@ bool wakeword_init(void)
     // Use the default config macro and customize for single mic
     afe_config_t afe_config = AFE_CONFIG_DEFAULT();
     afe_config.aec_init = false;              // No echo cancellation (no speaker feedback during listen)
+    afe_config.se_init = true;                // Speech enhancement
+    afe_config.vad_init = true;               // Voice activity detection
+    afe_config.wakenet_init = true;           // Enable wake word
     afe_config.wakenet_model_name = wn_name;  // Use discovered model
-    afe_config.wakenet_mode = DET_MODE_90;    // Single channel 90% threshold
+    afe_config.wakenet_mode = DET_MODE_95;    // Higher sensitivity (lower threshold)
+    afe_config.afe_mode = SR_MODE_LOW_COST;   // Single mic mode
+    afe_config.afe_perferred_core = 0;        // Run on core 0
+    afe_config.afe_perferred_priority = 5;
     afe_config.pcm_config.total_ch_num = 1;
     afe_config.pcm_config.mic_num = 1;
     afe_config.pcm_config.ref_num = 0;
@@ -140,6 +142,21 @@ bool wakeword_init(void)
     
     if (!afe_data) {
         ESP_LOGE(TAG, "Failed to create AFE");
+        return false;
+    }
+    
+    // Get required chunk size from AFE
+    feed_chunk_size = afe_handle->get_feed_chunksize(afe_data);
+    ESP_LOGI(TAG, "AFE feed chunk size: %d samples", feed_chunk_size);
+    
+    // Allocate feed buffer (use PSRAM for larger buffer)
+    feed_buffer = heap_caps_malloc(feed_chunk_size * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!feed_buffer) {
+        // Fall back to internal RAM
+        feed_buffer = heap_caps_malloc(feed_chunk_size * sizeof(int16_t), MALLOC_CAP_INTERNAL);
+    }
+    if (!feed_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate feed buffer");
         return false;
     }
     
