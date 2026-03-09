@@ -9,6 +9,40 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.7.19~1
+  espressif/esp-dsp:
+    component_hash: 3e7bbd487f1357a1d4944d0c85966d049501ea281b8a4c7f93f7cfedd5b7f23d
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.4.12
+  espressif/esp-sr:
+    component_hash: 9b41fd5ae5960c393bfd3559cd6e5fa2a95c0bf833915cebafe57fb8c4e4c396
+    dependencies:
+    - name: espressif/esp-dsp
+      registry_url: https://components.espressif.com
+      require: private
+      version: <=1.5.0
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.9.5
+  espressif/esp_websocket_client:
+    component_hash: c5a067a9fddea370c478017e66fac302f4b79c3d4027e9bdd42a019786cceb92
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.6.1
   idf:
     source:
       type: idf
@@ -22,7 +56,9 @@ dependencies:
     version: 8.4.0
 direct_dependencies:
 - espressif/cJSON
+- espressif/esp-sr
+- espressif/esp_websocket_client
 - lvgl/lvgl
-manifest_hash: e9df37112037aaff93d883d4973b4c0b67753a3cc06934574c7513a6cec536ce
+manifest_hash: 750f6e75afdd90d8c2f3de361d3c3a493a4cf0bd29eb14a37d1146b4a4d161a5
 target: esp32s3
 version: 2.0.0

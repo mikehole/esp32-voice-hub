@@ -1,0 +1,182 @@
+/**
+ * Wake Word Detection - ESP-SR WakeNet
+ * 
+ * Continuously listens for wake word, then triggers recording.
+ * Uses "Hi ESP" built-in model initially (can train custom later).
+ */
+
+#include "wakeword.h"
+#include "audio.h"
+#include "display.h"
+#include "voice_client.h"
+
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+
+#include "esp_wn_iface.h"
+#include "esp_wn_models.h"
+#include "esp_afe_sr_iface.h"
+#include "esp_afe_sr_models.h"
+#include "esp_afe_config.h"
+#include "model_path.h"
+
+static const char *TAG = "wakeword";
+
+// AFE (Audio Front-End) handle
+static esp_afe_sr_iface_t *afe_handle = NULL;
+static esp_afe_sr_data_t *afe_data = NULL;
+
+// Wake word state
+static volatile bool wakeword_enabled = false;
+static volatile bool wakeword_detected = false;
+static TaskHandle_t wakeword_task_handle = NULL;
+static TaskHandle_t feed_task_handle = NULL;
+
+// Audio buffer for AFE feed
+#define FEED_CHUNK_SIZE 512  // Samples per chunk (32ms at 16kHz)
+static int16_t *feed_buffer = NULL;
+
+// Callback when wake word detected
+static wakeword_callback_t wakeword_callback = NULL;
+
+// Feed task - continuously sends audio to AFE
+static void feed_task(void *arg)
+{
+    ESP_LOGI(TAG, "Feed task started");
+    
+    size_t bytes_to_read = FEED_CHUNK_SIZE * sizeof(int16_t);
+    
+    while (wakeword_enabled) {
+        // Read from mic
+        size_t bytes_read = audio_record_chunk((uint8_t *)feed_buffer, bytes_to_read);
+        
+        if (bytes_read > 0) {
+            // Feed to AFE
+            afe_handle->feed(afe_data, feed_buffer);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    ESP_LOGI(TAG, "Feed task stopped");
+    vTaskDelete(NULL);
+}
+
+// Detection task - processes AFE output and detects wake word
+static void detect_task(void *arg)
+{
+    ESP_LOGI(TAG, "Detection task started");
+    
+    while (wakeword_enabled) {
+        afe_fetch_result_t *res = afe_handle->fetch(afe_data);
+        
+        if (res && res->wakeup_state == WAKENET_DETECTED) {
+            ESP_LOGI(TAG, "*** WAKE WORD DETECTED! ***");
+            wakeword_detected = true;
+            
+            // Notify via callback
+            if (wakeword_callback) {
+                wakeword_callback();
+            }
+            
+            // Brief pause before listening again
+            vTaskDelay(pdMS_TO_TICKS(500));
+            wakeword_detected = false;
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    ESP_LOGI(TAG, "Detection task stopped");
+    vTaskDelete(NULL);
+}
+
+bool wakeword_init(void)
+{
+    ESP_LOGI(TAG, "Initializing wake word detection...");
+    
+    // Allocate feed buffer
+    feed_buffer = heap_caps_malloc(FEED_CHUNK_SIZE * sizeof(int16_t), MALLOC_CAP_INTERNAL);
+    if (!feed_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate feed buffer");
+        return false;
+    }
+    
+    // Use the default config macro and customize for single mic
+    afe_config_t afe_config = AFE_CONFIG_DEFAULT();
+    afe_config.aec_init = false;              // No echo cancellation (no speaker feedback during listen)
+    afe_config.wakenet_model_name = "wn9_hilexin";  // "Hi Lexin" / "Hi ESP" model
+    afe_config.wakenet_mode = DET_MODE_90;    // Single channel 90% threshold
+    afe_config.pcm_config.total_ch_num = 1;
+    afe_config.pcm_config.mic_num = 1;
+    afe_config.pcm_config.ref_num = 0;
+    afe_config.pcm_config.sample_rate = 16000;
+    
+    afe_handle = (esp_afe_sr_iface_t *)&ESP_AFE_SR_HANDLE;
+    afe_data = afe_handle->create_from_config(&afe_config);
+    
+    if (!afe_data) {
+        ESP_LOGE(TAG, "Failed to create AFE");
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "Wake word detection initialized (say 'Hi ESP')");
+    return true;
+}
+
+bool wakeword_start(void)
+{
+    if (wakeword_enabled) {
+        ESP_LOGW(TAG, "Already running");
+        return true;
+    }
+    
+    if (!afe_handle || !afe_data) {
+        ESP_LOGE(TAG, "Not initialized");
+        return false;
+    }
+    
+    wakeword_enabled = true;
+    
+    // Start mic recording for continuous feed
+    if (!audio_start_recording(320000)) {  // 10 seconds buffer
+        ESP_LOGE(TAG, "Failed to start recording");
+        wakeword_enabled = false;
+        return false;
+    }
+    
+    // Start tasks
+    xTaskCreatePinnedToCore(feed_task, "ww_feed", 4096, NULL, 5, &feed_task_handle, 0);
+    xTaskCreatePinnedToCore(detect_task, "ww_detect", 4096, NULL, 5, &wakeword_task_handle, 1);
+    
+    display_set_state(DISPLAY_STATE_IDLE);
+    ESP_LOGI(TAG, "Wake word detection started");
+    return true;
+}
+
+void wakeword_stop(void)
+{
+    if (!wakeword_enabled) return;
+    
+    wakeword_enabled = false;
+    
+    // Wait for tasks to finish
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    audio_stop_recording();
+    
+    ESP_LOGI(TAG, "Wake word detection stopped");
+}
+
+void wakeword_set_callback(wakeword_callback_t callback)
+{
+    wakeword_callback = callback;
+}
+
+bool wakeword_is_detected(void)
+{
+    return wakeword_detected;
+}

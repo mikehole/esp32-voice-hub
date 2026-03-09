@@ -21,6 +21,7 @@
 #include "ota_update.h"
 #include "display.h"
 #include "audio.h"
+#include "voice_client.h"
 
 static const char *TAG = "voice_hub";
 
@@ -50,6 +51,10 @@ void app_main(void)
     audio_init();
     ESP_LOGI(TAG, "Audio initialized");
 
+    // Initialize voice client (touch + WebSocket)
+    voice_client_init();
+    ESP_LOGI(TAG, "Voice client initialized");
+
     // Set up WiFi state callback to start web server when connected
     wifi_manager_set_callback(on_wifi_state_change);
     
@@ -75,5 +80,13 @@ static void on_wifi_state_change(wifi_state_t state)
         ota_init();
         web_server_start();
         ESP_LOGI(TAG, "Web server started - OTA ready!");
+        
+        // Connect to OpenClaw plugin WebSocket
+        // TODO: Make this configurable via NVS or web UI
+        voice_client_connect("ws://192.168.1.223:8765");
+        
+        // Start wake word detection after a short delay
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        voice_client_on_connected();
     }
 }

@@ -1,3 +1,5 @@
 dependencies:
   lvgl/lvgl: "^8.4.0"
   espressif/cJSON: "^1.7.0"
+  espressif/esp_websocket_client: "^1.2.0"
+  espressif/esp-sr: "^1.9.0"

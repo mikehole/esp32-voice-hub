@@ -7,6 +7,9 @@ idf_component_register(
         "display.c"
         "audio.c"
         "esp_lcd_sh8601.c"
+        "touch.c"
+        "voice_client.c"
+        "wakeword.c"
     INCLUDE_DIRS "."
     REQUIRES 
         esp_wifi
@@ -23,4 +26,6 @@ idf_component_register(
         app_update
         esp_timer
         esp_driver_i2s
+        esp_websocket_client
+        esp-sr
 )
