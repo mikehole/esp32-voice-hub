@@ -39,6 +39,9 @@ static TaskHandle_t feed_task_handle = NULL;
 static int feed_chunk_size = 0;  // Set from AFE after init
 static int16_t *feed_buffer = NULL;
 
+// Mic gain (speech is too quiet relative to noise floor)
+#define MIC_GAIN 6  // Multiply samples by this factor
+
 // Callback when wake word detected
 static wakeword_callback_t wakeword_callback = NULL;
 
@@ -50,24 +53,32 @@ static void feed_task(void *arg)
     
     size_t bytes_to_read = feed_chunk_size * sizeof(int16_t);
     int feed_count = 0;
-    int32_t max_amplitude = 0;
+    int32_t max_amplitude_window = 0;  // Track max over window
     
     while (wakeword_enabled) {
         // Read from mic - blocks until we have enough data
         size_t bytes_read = audio_record_chunk((uint8_t *)feed_buffer, bytes_to_read);
         
         if (bytes_read == bytes_to_read) {
-            // Check audio levels periodically
             feed_count++;
+            
+            // Apply gain and track max amplitude
+            for (int i = 0; i < feed_chunk_size; i++) {
+                // Apply gain with clipping protection
+                int32_t amplified = (int32_t)feed_buffer[i] * MIC_GAIN;
+                if (amplified > 32767) amplified = 32767;
+                if (amplified < -32768) amplified = -32768;
+                feed_buffer[i] = (int16_t)amplified;
+                
+                // Track max (after gain)
+                int16_t abs_sample = (amplified < 0) ? -amplified : amplified;
+                if (abs_sample > max_amplitude_window) max_amplitude_window = abs_sample;
+            }
+            
+            // Log every 100 chunks (~1 second) and reset
             if (feed_count % 100 == 0) {
-                // Find max amplitude in this chunk
-                max_amplitude = 0;
-                for (int i = 0; i < feed_chunk_size; i++) {
-                    int16_t sample = feed_buffer[i];
-                    if (sample < 0) sample = -sample;
-                    if (sample > max_amplitude) max_amplitude = sample;
-                }
-                ESP_LOGI(TAG, "Feed #%d, max amplitude: %ld", feed_count, (long)max_amplitude);
+                ESP_LOGI(TAG, "Feed #%d, max amp (1s window): %ld", feed_count, (long)max_amplitude_window);
+                max_amplitude_window = 0;  // Reset for next window
             }
             
             // Feed to AFE
@@ -91,9 +102,17 @@ static void feed_task(void *arg)
 static void detect_task(void *arg)
 {
     ESP_LOGI(TAG, "Detection task started");
+    int fetch_count = 0;
     
     while (wakeword_enabled) {
         afe_fetch_result_t *res = afe_handle->fetch(afe_data);
+        fetch_count++;
+        
+        // Log fetch status periodically
+        if (fetch_count % 500 == 0) {
+            ESP_LOGI(TAG, "Fetch #%d, res=%p, wakeup_state=%d", 
+                     fetch_count, res, res ? res->wakeup_state : -1);
+        }
         
         if (res && res->wakeup_state == WAKENET_DETECTED) {
             ESP_LOGI(TAG, "*** WAKE WORD DETECTED! ***");
