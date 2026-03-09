@@ -16,4 +16,7 @@ idf_component_register(
         driver
         esp_lcd
         lvgl
+        esp_app_format
+        bootloader_support
+        esp_partition
 )

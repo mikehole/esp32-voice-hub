@@ -7,9 +7,15 @@
 #include "wifi_manager.h"
 #include "audio.h"
 #include <string.h>
+#include <stdlib.h>
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "cJSON.h"
+
+// MIN macro if not defined
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
 
 static const char *TAG = "web_srv";
 static httpd_handle_t server = NULL;
