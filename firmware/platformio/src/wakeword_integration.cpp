@@ -57,11 +57,27 @@ void wakeword_integration_init() {
     Serial.println("WakeWord: Integration initialized");
 }
 
+// Reconnect state
+static unsigned long last_reconnect_attempt = 0;
+static const unsigned long RECONNECT_INTERVAL = 5000;
+
 void wakeword_integration_loop() {
     if (!initialized) return;
     
-    // ESP-IDF WebSocket runs in its own task
+    // Run WebSocket loop
     ws_loop();
+    
+    // Auto-reconnect if disconnected
+    if (enabled && !ws_is_connected()) {
+        unsigned long now = millis();
+        if (now - last_reconnect_attempt > RECONNECT_INTERVAL) {
+            last_reconnect_attempt = now;
+            Serial.println("WakeWord: Attempting to reconnect...");
+            if (ws_init()) {
+                Serial.println("WakeWord: Reconnected!");
+            }
+        }
+    }
 }
 
 bool wakeword_integration_is_active() {
@@ -164,15 +180,18 @@ static void on_ws_event(WsEventType event) {
         case WS_EVENT_DISCONNECTED:
             Serial.println("WakeWord: Disconnected from server");
             audio_stop_idle_stream();
+            // Reset to idle state
+            status_ring_hide();
+            avatar_set_state(STATE_IDLE);
+            // Try to reconnect after a delay
+            Serial.println("WakeWord: Will reconnect in 5 seconds...");
             break;
             
         case WS_EVENT_ERROR:
             Serial.println("WakeWord: WebSocket error");
+            audio_stop_idle_stream();
             status_ring_hide();
             avatar_set_state(STATE_IDLE);
-            if (enabled) {
-                audio_start_idle_stream();
-            }
             break;
     }
 }
