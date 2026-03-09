@@ -24,6 +24,9 @@
 
 static const char *TAG = "voice_hub";
 
+// Forward declaration
+static void on_wifi_state_change(wifi_state_t state);
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "========================================");
@@ -47,6 +50,9 @@ void app_main(void)
     audio_init();
     ESP_LOGI(TAG, "Audio initialized");
 
+    // Set up WiFi state callback to start web server when connected
+    wifi_manager_set_callback(on_wifi_state_change);
+    
     // Initialize WiFi
     wifi_manager_init();
     ESP_LOGI(TAG, "WiFi manager initialized");
@@ -58,5 +64,16 @@ void app_main(void)
     while (1) {
         display_loop();
         vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+// Callback when WiFi state changes
+static void on_wifi_state_change(wifi_state_t state)
+{
+    if (state == WIFI_STATE_CONNECTED) {
+        ESP_LOGI(TAG, "WiFi connected! IP: %s", wifi_manager_get_ip());
+        ota_init();
+        web_server_start();
+        ESP_LOGI(TAG, "Web server started - OTA ready!");
     }
 }

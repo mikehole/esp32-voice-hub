@@ -101,24 +101,35 @@ void wifi_manager_start(void)
     nvs_handle_t nvs;
     esp_err_t err = nvs_open("wifi", NVS_READONLY, &nvs);
     
+    wifi_config_t wifi_config = {0};
+    bool have_creds = false;
+    
     if (err == ESP_OK) {
-        wifi_config_t wifi_config = {0};
         size_t ssid_len = sizeof(wifi_config.sta.ssid);
         size_t pass_len = sizeof(wifi_config.sta.password);
         
         if (nvs_get_str(nvs, "ssid", (char*)wifi_config.sta.ssid, &ssid_len) == ESP_OK &&
             nvs_get_str(nvs, "password", (char*)wifi_config.sta.password, &pass_len) == ESP_OK) {
-            
-            ESP_LOGI(TAG, "Connecting to saved network: %s", wifi_config.sta.ssid);
-            ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-            ESP_ERROR_CHECK(esp_wifi_start());
-        } else {
-            ESP_LOGW(TAG, "No saved credentials found");
-            set_state(WIFI_STATE_ERROR);
+            have_creds = true;
+            ESP_LOGI(TAG, "Using saved credentials for: %s", wifi_config.sta.ssid);
         }
         nvs_close(nvs);
+    }
+    
+    // Fallback to hardcoded credentials if NVS is empty
+    if (!have_creds) {
+        ESP_LOGI(TAG, "Using default credentials");
+        strcpy((char*)wifi_config.sta.ssid, "Hyperoptic Fibre 6A50");
+        strcpy((char*)wifi_config.sta.password, "Ns4R97HZ3ACbts");
+        have_creds = true;
+    }
+    
+    if (have_creds) {
+        ESP_LOGI(TAG, "Connecting to: %s", wifi_config.sta.ssid);
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+        ESP_ERROR_CHECK(esp_wifi_start());
     } else {
-        ESP_LOGW(TAG, "Failed to open NVS for WiFi credentials");
+        ESP_LOGW(TAG, "No credentials available");
         set_state(WIFI_STATE_ERROR);
     }
 }
