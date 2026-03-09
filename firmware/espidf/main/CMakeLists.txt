@@ -22,4 +22,5 @@ idf_component_register(
         esp_partition
         app_update
         esp_timer
+        esp_driver_i2s
 )

@@ -202,9 +202,13 @@ static esp_err_t play_handler(httpd_req_t *req)
     }
     
     // Play audio (audio module will free the buffer)
-    audio_play(audio_data, req->content_len, sample_rate);
-    
-    httpd_resp_send(req, "Playing", -1);
+    if (audio_play(audio_data, req->content_len, sample_rate, true)) {
+        httpd_resp_send(req, "Playing", -1);
+    } else {
+        free(audio_data);
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, "Playback failed", -1);
+    }
     return ESP_OK;
 }
 

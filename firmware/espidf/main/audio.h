@@ -1,36 +1,31 @@
+/**
+ * Audio Module Header
+ * I2S PDM Microphone + PCM5100A DAC
+ */
+
 #pragma once
 
 #include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
-#include "esp_err.h"
+#include <stddef.h>
 
-// Initialize audio subsystem (I2S mic + DAC)
-esp_err_t audio_init(void);
+// Initialize audio hardware (mic + DAC)
+void audio_init(void);
 
-// Play PCM audio (takes ownership of buffer, will free when done)
-esp_err_t audio_play(uint8_t* data, size_t len, uint32_t sample_rate);
-
-// Check if currently playing
-bool audio_is_playing(void);
-
-// Stop playback
-void audio_stop(void);
-
-// Start recording for voice command
-esp_err_t audio_start_recording(void);
-
-// Stop recording and get buffer
-const uint8_t* audio_stop_recording(size_t* out_len);
-
-// Check if recording
+// Recording functions
+bool audio_start_recording(size_t max_bytes);
+size_t audio_record_chunk(uint8_t *buffer, size_t max_size);
+void audio_stop_recording(void);
 bool audio_is_recording(void);
 
-// Get current audio level (0-100)
-uint8_t audio_get_level(void);
+// Playback functions
+// data: raw PCM audio (16-bit mono)
+// sample_rate: e.g., 24000 for OpenAI TTS
+// take_ownership: if true, audio module will free the buffer when done
+bool audio_play(const uint8_t *data, size_t size, uint32_t sample_rate, bool take_ownership);
+void audio_stop_playback(void);
+bool audio_is_playing(void);
 
-// Callback for streaming audio (for wake word / voice streaming)
-typedef void (*audio_stream_callback_t)(const uint8_t* data, size_t len);
-void audio_set_stream_callback(audio_stream_callback_t cb);
-void audio_start_streaming(void);
-void audio_stop_streaming(void);
+// Volume control (0-100)
+void audio_set_volume(int volume);
+int audio_get_volume(void);

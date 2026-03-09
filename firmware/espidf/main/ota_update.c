@@ -25,6 +25,8 @@ void ota_init(void)
 {
     // Get SHA256 of running firmware
     const esp_app_desc_t* app_desc = esp_app_get_description();
+    (void)app_desc;  // Suppress unused warning
+    
     uint8_t sha256[32];
     esp_partition_get_sha256(esp_ota_get_running_partition(), sha256);
     
@@ -34,6 +36,17 @@ void ota_init(void)
     }
     
     ESP_LOGI(TAG, "Running firmware: %s (%.8s)", FIRMWARE_VERSION, sha256_short);
+    
+    // Mark this firmware as valid (required for OTA rollback support)
+    // Without this, subsequent OTA updates will fail with ESP_ERR_OTA_ROLLBACK_INVALID_STATE
+    esp_ota_img_states_t ota_state;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+            ESP_LOGI(TAG, "Marking firmware as valid");
+            esp_ota_mark_app_valid_cancel_rollback();
+        }
+    }
 }
 
 const char* ota_get_version(void)
