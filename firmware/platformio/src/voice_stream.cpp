@@ -18,9 +18,9 @@
 
 static const char* TAG = "VoiceStream";
 
-// State
+// State - use volatile for variables accessed from callback
 static bool initialized = false;
-static bool streaming = false;
+static volatile bool streaming = false;
 static bool waiting_for_response = false;
 
 // Audio streaming callback - forwards mic audio to WebSocket
@@ -72,13 +72,14 @@ bool voice_stream_start() {
     // Send start message with sample rate
     ws_send_audio_start(16000);
     
+    // Mark as streaming BEFORE starting audio
+    streaming = true;
+    
     // Set up audio streaming callback
     audio_set_idle_callback(on_stream_audio);
     
     // Start capturing and streaming
     audio_start_idle_stream();
-    
-    streaming = true;
     
     // Update UI
     avatar_set_state(STATE_RECORDING);
@@ -93,21 +94,26 @@ void voice_stream_stop() {
     
     Serial.println("VoiceStream: Stopping stream...");
     
-    // Stop audio capture first
+    // CRITICAL: Set streaming to false FIRST to prevent callback from sending more data
+    streaming = false;
+    
+    // Stop audio capture and clear callback
     audio_stop_idle_stream();
     audio_set_idle_callback(nullptr);
     
-    // Send end message
+    // Small delay to ensure any in-flight callbacks complete
+    vTaskDelay(pdMS_TO_TICKS(50));
+    
+    // Send end message while still connected
     if (ws_is_connected()) {
         ws_send_audio_end();
         Serial.println("VoiceStream: Sent audio_end");
     }
     
-    streaming = false;
-    waiting_for_response = true;
-    
     // Disconnect WebSocket - server will process and POST to /api/play
     ws_disconnect();
+    
+    waiting_for_response = true;
     
     // Update UI to thinking (waiting for /api/play response)
     avatar_set_state(STATE_THINKING);
@@ -152,9 +158,14 @@ void voice_stream_loop() {
 // ============================================================================
 
 static void on_stream_audio(const uint8_t* data, size_t length) {
-    // Forward audio to WebSocket
-    if (streaming && ws_is_connected()) {
-        ws_send_binary(data, length);
+    // Forward audio to WebSocket (with safety checks)
+    // Check streaming flag first (volatile, set to false before disconnect)
+    if (!streaming) return;
+    if (!initialized) return;
+    if (!ws_is_connected()) return;
+    
+    if (!ws_send_binary(data, length)) {
+        Serial.println("VoiceStream: Failed to send audio chunk");
     }
 }
 
