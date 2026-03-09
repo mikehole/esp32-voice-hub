@@ -19,4 +19,5 @@ idf_component_register(
         esp_app_format
         bootloader_support
         esp_partition
+        app_update
 )
