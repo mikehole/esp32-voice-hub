@@ -290,6 +290,14 @@ static esp_err_t play_handler(httpd_req_t *req)
 
 static esp_err_t screenshot_handler(httpd_req_t *req)
 {
+    // TODO: lv_snapshot_take() crashes - disabled for now
+    httpd_resp_send_err(req, HTTPD_501_METHOD_NOT_IMPLEMENTED, "Screenshot temporarily disabled");
+    return ESP_FAIL;
+}
+
+#if 0  // Disabled until we fix the crash
+static esp_err_t screenshot_handler_DISABLED(httpd_req_t *req)
+{
     ESP_LOGI(TAG, "Screenshot request");
     
     // Try to get display lock with retries
@@ -386,6 +394,7 @@ static esp_err_t screenshot_handler(httpd_req_t *req)
     
     return ESP_OK;
 }
+#endif  // Disabled screenshot handler
 
 // ============================================================================
 // Server lifecycle

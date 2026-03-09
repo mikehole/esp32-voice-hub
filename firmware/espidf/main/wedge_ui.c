@@ -14,33 +14,33 @@
 
 static const char *TAG = "wedge_ui";
 
-// Display dimensions
+// Display dimensions (matching PlatformIO)
 #define SCREEN_SIZE     360
 #define CENTER_X        (SCREEN_SIZE / 2)
 #define CENTER_Y        (SCREEN_SIZE / 2)
-#define OUTER_RADIUS    180
-#define INNER_RADIUS    75
+#define OUTER_RADIUS    165
+#define INNER_RADIUS    85
 #define AVATAR_SIZE     130
 
-// Colors
+// Colors (matching PlatformIO)
 #define COLOR_BG        lv_color_black()
 #define COLOR_WEDGE     lv_color_hex(0x1a1a2e)
 #define COLOR_WEDGE_ALT lv_color_hex(0x16213e)
 #define COLOR_SELECTED  lv_color_hex(0x0f3460)
 #define COLOR_CENTER    lv_color_hex(0x1a1a2e)
 #define COLOR_BORDER    lv_color_hex(0x533483)
-#define COLOR_TEXT      lv_color_hex(0xe94560)
+#define COLOR_TEXT      lv_color_hex(0x5DADE2)  // Cyan text
 
-// Wedge labels
+// Wedge labels (matching PlatformIO version)
 static const char* wedge_labels[] = {
-    LV_SYMBOL_AUDIO,     // 0: Voice (top)
-    LV_SYMBOL_HOME,      // 1: Home
-    LV_SYMBOL_SETTINGS,  // 2: Settings  
-    LV_SYMBOL_WIFI,      // 3: WiFi
-    LV_SYMBOL_BELL,      // 4: Notifications
-    LV_SYMBOL_LIST,      // 5: List
-    LV_SYMBOL_DOWNLOAD,  // 6: Download
-    LV_SYMBOL_POWER      // 7: Power
+    "Minerva",   // 0: Top
+    "Music",     // 1
+    "Home",      // 2
+    "Weather",   // 3
+    "News",      // 4
+    "Timer",     // 5
+    "Lights",    // 6
+    "Settings"   // 7
 };
 
 // State
@@ -170,12 +170,12 @@ bool wedge_ui_init(void) {
         float angle_rad = angle_deg * M_PI / 180.0;
         float label_radius = (OUTER_RADIUS + INNER_RADIUS) / 2;
         
-        int label_x = CENTER_X + (int)(cos(angle_rad) * label_radius) - 10;
-        int label_y = CENTER_Y + (int)(sin(angle_rad) * label_radius) - 10;
+        int label_x = CENTER_X + (int)(cos(angle_rad) * label_radius) - 22;
+        int label_y = CENTER_Y + (int)(sin(angle_rad) * label_radius) - 8;
         
         lv_obj_t* label = lv_label_create(screen);
         lv_label_set_text(label, wedge_labels[i]);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(label, lv_color_white(), 0);
         lv_obj_set_pos(label, label_x, label_y);
         wedge_labels_obj[i] = label;
@@ -183,7 +183,7 @@ bool wedge_ui_init(void) {
     
     // Center circle
     center_obj = lv_obj_create(screen);
-    lv_obj_set_size(center_obj, AVATAR_SIZE + 10, AVATAR_SIZE + 10);
+    lv_obj_set_size(center_obj, AVATAR_SIZE, AVATAR_SIZE);  // Exact size, no padding
     lv_obj_center(center_obj);
     lv_obj_set_style_radius(center_obj, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(center_obj, COLOR_CENTER, 0);
