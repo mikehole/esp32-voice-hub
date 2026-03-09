@@ -10,6 +10,7 @@ idf_component_register(
         "touch.c"
         "voice_client.c"
         "wakeword.c"
+        "wedge_ui.c"
     INCLUDE_DIRS "."
     REQUIRES 
         esp_wifi
