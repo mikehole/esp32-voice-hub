@@ -429,7 +429,7 @@ void display_init(void)
     
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = PIN_NUM_LCD_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
         .bits_per_pixel = LCD_BIT_PER_PIXEL,
         .vendor_config = &vendor_cfg,
     };
