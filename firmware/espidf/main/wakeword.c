@@ -21,6 +21,7 @@
 #include "esp_afe_sr_iface.h"
 #include "esp_afe_sr_models.h"
 #include "esp_afe_config.h"
+#include "esp_partition.h"
 #include "model_path.h"
 
 static const char *TAG = "wakeword";
@@ -105,10 +106,32 @@ bool wakeword_init(void)
         return false;
     }
     
+    // Initialize SPIFFS and load models from the "model" partition
+    ESP_LOGI(TAG, "Loading SR models from SPIFFS...");
+    srmodel_list_t *models = srmodel_spiffs_init(&(esp_partition_t){
+        .label = "model"
+    });
+    if (!models || models->num == 0) {
+        ESP_LOGE(TAG, "Failed to load SR models - check if partition is flashed");
+        return false;
+    }
+    ESP_LOGI(TAG, "Loaded %d SR models", models->num);
+    for (int i = 0; i < models->num; i++) {
+        ESP_LOGI(TAG, "  Model %d: %s", i, models->model_name[i]);
+    }
+    
+    // Find the wake word model
+    char *wn_name = esp_srmodel_filter(models, ESP_WN_PREFIX, NULL);
+    if (!wn_name) {
+        ESP_LOGE(TAG, "No wake word model found");
+        return false;
+    }
+    ESP_LOGI(TAG, "Using wake word model: %s", wn_name);
+    
     // Use the default config macro and customize for single mic
     afe_config_t afe_config = AFE_CONFIG_DEFAULT();
     afe_config.aec_init = false;              // No echo cancellation (no speaker feedback during listen)
-    afe_config.wakenet_model_name = "wn9_hilexin";  // "Hi Lexin" / "Hi ESP" model
+    afe_config.wakenet_model_name = wn_name;  // Use discovered model
     afe_config.wakenet_mode = DET_MODE_90;    // Single channel 90% threshold
     afe_config.pcm_config.total_ch_num = 1;
     afe_config.pcm_config.mic_num = 1;
