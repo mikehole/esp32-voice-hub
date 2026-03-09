@@ -16,6 +16,7 @@
 #include "notification.h"
 #include "avatar.h"
 #include "status_ring.h"
+#include "voice_stream.h"
 
 // Brightness callbacks
 static brightness_getter_t get_brightness = NULL;
@@ -907,7 +908,12 @@ static esp_err_t play_handler(httpd_req_t *req) {
         Serial.printf("Play: WAV header: %u Hz, %d channels\n", wav_rate, wav_channels);
     }
     
-    // Show speaking state while playing (for voice hook responses)
+    // Notify voice_stream that response arrived (if waiting)
+    if (voice_stream_is_waiting()) {
+        voice_stream_response_received();
+    }
+    
+    // Show speaking state while playing
     avatar_set_state(STATE_SPEAKING);
     status_ring_show(STATE_SPEAKING);
     
@@ -929,6 +935,9 @@ static esp_err_t play_handler(httpd_req_t *req) {
     // Return to idle state
     status_ring_hide();
     avatar_set_state(STATE_IDLE);
+    
+    // Notify voice_stream that playback is done
+    voice_stream_response_done();
     
     heap_caps_free(audio_data);
     

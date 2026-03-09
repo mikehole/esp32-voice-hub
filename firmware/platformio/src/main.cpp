@@ -22,6 +22,7 @@
 #include "notification.h"
 #include "lvgl_port.h"
 #include "wakeword_integration.h"
+#include "voice_stream.h"
 
 // Encoder pins
 #define ENCODER_PIN_A    8
@@ -431,38 +432,18 @@ void check_touch() {
         }
     }
     
-    // Tap-to-toggle recording when Minerva selected
+    // Tap-to-toggle voice streaming when Minerva selected
     if (selected_wedge == 0 && ring_state != STATE_THINKING && ring_state != STATE_SPEAKING && ring_state != STATE_NOTIFICATION) {
-        // Tap center to start/stop recording
+        // Tap center to start/stop voice streaming
         if (touched && !was_touched && is_center_touch(x, y)) {
-            if (audio_is_recording()) {
-                // Currently recording - stop and process
-                Serial.println("Tap - stop recording");
-                
-                if (wakeword_integration_is_active()) {
-                    // Use wake word integration (WebSocket)
-                    wakeword_stop_recording();
-                } else {
-                    // Fall back to original HTTP hook method
-                    size_t audio_size = 0;
-                    const uint8_t* audio_data = audio_stop_recording(&audio_size);
-                    Serial.printf("Audio captured: %u bytes\n", audio_size);
-                    process_voice_command(audio_data, audio_size);
-                }
-            } else {
-                // Not recording - start
-                Serial.println("Tap - start recording");
-                
-                if (wakeword_integration_is_active()) {
-                    // Use wake word integration (WebSocket)
-                    wakeword_start_recording();
-                } else {
-                    // Fall back to original method
-                    if (audio_start_recording()) {
-                        avatar_set_state(STATE_RECORDING);
-                        status_ring_show(STATE_RECORDING);
-                    }
-                }
+            if (voice_stream_is_active()) {
+                // Currently streaming - stop and process
+                Serial.println("Tap - stop streaming");
+                voice_stream_stop();
+            } else if (!voice_stream_is_waiting()) {
+                // Not streaming and not waiting - start
+                Serial.println("Tap - start streaming");
+                voice_stream_start();
             }
             was_touched = touched;
             return;
@@ -601,11 +582,8 @@ void loop() {
     // Use mutex-protected LVGL handler
     lvgl_port_task_handler();
     
-    // Wake word integration loop (WebSocket events)
-    wakeword_integration_loop();
-    
-    // Check voice processing status (background task)
-    check_voice_processing();
+    // Voice streaming loop (WebSocket events)
+    voice_stream_loop();
     
     // Periodic heap check (every 10 seconds)
     static unsigned long last_heap_check = 0;
@@ -626,8 +604,8 @@ void loop() {
             status_ring_hide();
             Serial.println("WiFi connected - ready!");
             
-            // Initialize wake word integration now that WiFi is connected
-            wakeword_integration_init();
+            // Initialize voice streaming now that WiFi is connected
+            voice_stream_init();
         } else if (wifi_state == WIFI_STATE_CONNECTING) {
             // Connecting - show zapped avatar WITH spinning ring!
             avatar_set_state(STATE_CONNECTING);
