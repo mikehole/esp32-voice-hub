@@ -162,6 +162,73 @@ static esp_err_t ota_url_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// GET /api/record?duration=N - Record audio from mic (returns raw PCM)
+static esp_err_t record_handler(httpd_req_t *req)
+{
+    // Parse query params for duration
+    char query[64] = {0};
+    int duration_ms = 3000;  // Default 3 seconds
+    
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char param[16];
+        if (httpd_query_key_value(query, "duration", param, sizeof(param)) == ESP_OK) {
+            duration_ms = atoi(param);
+            if (duration_ms < 100) duration_ms = 100;
+            if (duration_ms > 10000) duration_ms = 10000;
+        }
+    }
+    
+    ESP_LOGI(TAG, "Recording %d ms", duration_ms);
+    
+    // Calculate buffer size (16kHz, 16-bit mono = 32KB/sec)
+    size_t buffer_size = (16000 * 2 * duration_ms) / 1000;
+    uint8_t *audio_data = malloc(buffer_size);
+    if (!audio_data) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, "Out of memory", -1);
+        return ESP_OK;
+    }
+    
+    if (!audio_start_recording(buffer_size)) {
+        free(audio_data);
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, "Recording failed to start", -1);
+        return ESP_OK;
+    }
+    
+    // Record audio in chunks
+    size_t total_recorded = 0;
+    uint32_t start_time = xTaskGetTickCount();
+    uint32_t timeout_ticks = pdMS_TO_TICKS(duration_ms + 500);
+    
+    while (total_recorded < buffer_size) {
+        size_t chunk = audio_record_chunk(audio_data + total_recorded, 
+                                          MIN(4096, buffer_size - total_recorded));
+        if (chunk > 0) {
+            total_recorded += chunk;
+        }
+        
+        if ((xTaskGetTickCount() - start_time) > timeout_ticks) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    audio_stop_recording();
+    
+    ESP_LOGI(TAG, "Recorded %u bytes", total_recorded);
+    
+    // Send audio data
+    httpd_resp_set_type(req, "audio/raw");
+    httpd_resp_set_hdr(req, "X-Sample-Rate", "16000");
+    httpd_resp_set_hdr(req, "X-Bits-Per-Sample", "16");
+    httpd_resp_set_hdr(req, "X-Channels", "1");
+    httpd_resp_send(req, (const char*)audio_data, total_recorded);
+    
+    free(audio_data);
+    return ESP_OK;
+}
+
 // POST /api/play - Play audio (for TTS responses)
 static esp_err_t play_handler(httpd_req_t *req)
 {
@@ -258,6 +325,13 @@ esp_err_t web_server_start(void)
         .handler = play_handler
     };
     httpd_register_uri_handler(server, &play_uri);
+    
+    httpd_uri_t record_uri = {
+        .uri = "/api/record",
+        .method = HTTP_GET,
+        .handler = record_handler
+    };
+    httpd_register_uri_handler(server, &record_uri);
     
     ESP_LOGI(TAG, "Server started");
     return ESP_OK;
