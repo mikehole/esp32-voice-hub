@@ -5,6 +5,7 @@
 
 #include "display.h"
 #include "esp_lcd_sh8601.h"
+#include "wedge_ui.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -43,7 +44,8 @@ static const char *TAG = "display";
 #define LVGL_TASK_PRIORITY     2
 
 // LVGL mutex for thread safety
-static SemaphoreHandle_t lvgl_mutex = NULL;
+// Exported for wedge_ui.c
+SemaphoreHandle_t lvgl_mutex = NULL;
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static lv_disp_drv_t disp_drv;
 
@@ -477,9 +479,9 @@ void display_init(void)
     lvgl_mutex = xSemaphoreCreateMutex();
     assert(lvgl_mutex);
     
-    // Create UI
+    // Create UI - use wedge UI with avatar
     if (display_lock(-1)) {
-        create_ui();
+        wedge_ui_init();
         display_unlock();
     }
     
@@ -496,40 +498,41 @@ void display_set_state(display_state_t state)
     if (!display_lock(100)) return;
     
     const char *status_text = "Ready";
-    uint32_t arc_color = 0x5DADE2;  // Cyan
+    avatar_state_t avatar = AVATAR_IDLE;
     
     switch (state) {
         case DISPLAY_STATE_IDLE:
             status_text = "Ready";
-            arc_color = 0x5DADE2;
+            avatar = AVATAR_IDLE;
             break;
         case DISPLAY_STATE_CONNECTING:
             status_text = "Connecting...";
-            arc_color = 0xF39C12;  // Orange
+            avatar = AVATAR_IDLE;
             break;
         case DISPLAY_STATE_LISTENING:
             status_text = "Listening...";
-            arc_color = 0x2ECC71;  // Green
+            avatar = AVATAR_LISTENING;
             break;
         case DISPLAY_STATE_THINKING:
             status_text = "Thinking...";
-            arc_color = 0x9B59B6;  // Purple
+            avatar = AVATAR_THINKING;
             break;
         case DISPLAY_STATE_SPEAKING:
             status_text = "Speaking...";
-            arc_color = 0x3498DB;  // Blue
+            avatar = AVATAR_SPEAKING;
             break;
         case DISPLAY_STATE_ERROR:
             status_text = "Error";
-            arc_color = 0xE74C3C;  // Red
+            avatar = AVATAR_IDLE;
             break;
     }
     
+    // Update wedge UI avatar
+    wedge_ui_set_avatar_state(avatar);
+    
+    // Legacy status label (if exists)
     if (status_label) {
         lv_label_set_text(status_label, status_text);
-    }
-    if (state_arc) {
-        lv_obj_set_style_arc_color(state_arc, lv_color_hex(arc_color), LV_PART_INDICATOR);
     }
     
     display_unlock();

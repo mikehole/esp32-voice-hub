@@ -6,11 +6,16 @@
 #include "ota_update.h"
 #include "wifi_manager.h"
 #include "audio.h"
+#include "display.h"
 #include <string.h>
 #include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "cJSON.h"
+#include "lvgl.h"
 
 // MIN macro if not defined
 #ifndef MIN
@@ -280,6 +285,109 @@ static esp_err_t play_handler(httpd_req_t *req)
 }
 
 // ============================================================================
+// Screenshot handler
+// ============================================================================
+
+static esp_err_t screenshot_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Screenshot request");
+    
+    // Try to get display lock with retries
+    bool got_lock = false;
+    for (int i = 0; i < 10; i++) {
+        if (display_lock(100)) {
+            got_lock = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    
+    if (!got_lock) {
+        ESP_LOGE(TAG, "Screenshot: couldn't get display lock");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Display busy");
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "Screenshot: got lock, taking snapshot");
+    
+    lv_obj_t *scr = lv_scr_act();
+    lv_coord_t w = lv_obj_get_width(scr);
+    lv_coord_t h = lv_obj_get_height(scr);
+    
+    ESP_LOGI(TAG, "Screenshot: %dx%d", w, h);
+    
+    // Take LVGL snapshot
+    lv_img_dsc_t *snapshot = lv_snapshot_take(scr, LV_IMG_CF_TRUE_COLOR);
+    display_unlock();
+    
+    ESP_LOGI(TAG, "Screenshot: snapshot taken, lock released");
+    
+    if (!snapshot) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Snapshot failed");
+        return ESP_FAIL;
+    }
+    
+    // BMP header (54 bytes) + pixel data
+    uint32_t row_size = ((w * 3 + 3) / 4) * 4;  // Rows padded to 4 bytes
+    uint32_t pixel_size = row_size * h;
+    uint32_t file_size = 54 + pixel_size;
+    
+    // Allocate BMP buffer in PSRAM
+    uint8_t *bmp = (uint8_t*)heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+    if (!bmp) {
+        lv_snapshot_free(snapshot);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+        return ESP_FAIL;
+    }
+    
+    // BMP file header
+    bmp[0] = 'B'; bmp[1] = 'M';
+    bmp[2] = file_size & 0xFF;
+    bmp[3] = (file_size >> 8) & 0xFF;
+    bmp[4] = (file_size >> 16) & 0xFF;
+    bmp[5] = (file_size >> 24) & 0xFF;
+    bmp[6] = bmp[7] = bmp[8] = bmp[9] = 0;  // Reserved
+    bmp[10] = 54; bmp[11] = bmp[12] = bmp[13] = 0;  // Pixel data offset
+    
+    // DIB header (BITMAPINFOHEADER)
+    bmp[14] = 40; bmp[15] = bmp[16] = bmp[17] = 0;  // Header size
+    bmp[18] = w & 0xFF; bmp[19] = (w >> 8) & 0xFF; bmp[20] = bmp[21] = 0;  // Width
+    bmp[22] = h & 0xFF; bmp[23] = (h >> 8) & 0xFF; bmp[24] = bmp[25] = 0;  // Height
+    bmp[26] = 1; bmp[27] = 0;  // Planes
+    bmp[28] = 24; bmp[29] = 0;  // Bits per pixel
+    memset(&bmp[30], 0, 24);  // Compression, size, resolution, colors
+    
+    // Convert RGB565 to BGR24 (BMP format, bottom-up)
+    uint16_t *src = (uint16_t*)snapshot->data;
+    for (int y = 0; y < h; y++) {
+        uint8_t *row = &bmp[54 + (h - 1 - y) * row_size];  // Bottom-up
+        for (int x = 0; x < w; x++) {
+            uint16_t pixel = src[y * w + x];
+            // RGB565 -> BGR24
+            #if LV_COLOR_16_SWAP
+            pixel = ((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
+            #endif
+            uint8_t r = ((pixel >> 11) & 0x1F) << 3;
+            uint8_t g = ((pixel >> 5) & 0x3F) << 2;
+            uint8_t b = (pixel & 0x1F) << 3;
+            row[x * 3 + 0] = b;
+            row[x * 3 + 1] = g;
+            row[x * 3 + 2] = r;
+        }
+    }
+    
+    // Send response
+    httpd_resp_set_type(req, "image/bmp");
+    httpd_resp_send(req, (char*)bmp, file_size);
+    
+    // Cleanup
+    heap_caps_free(bmp);
+    lv_snapshot_free(snapshot);
+    
+    return ESP_OK;
+}
+
+// ============================================================================
 // Server lifecycle
 // ============================================================================
 
@@ -332,6 +440,13 @@ esp_err_t web_server_start(void)
         .handler = record_handler
     };
     httpd_register_uri_handler(server, &record_uri);
+    
+    httpd_uri_t screenshot_uri = {
+        .uri = "/api/screenshot",
+        .method = HTTP_GET,
+        .handler = screenshot_handler
+    };
+    httpd_register_uri_handler(server, &screenshot_uri);
     
     ESP_LOGI(TAG, "Server started");
     return ESP_OK;

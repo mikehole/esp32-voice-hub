@@ -50,6 +50,10 @@
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
+/* Extra features */
+#define LV_USE_SNAPSHOT   1
+#define LV_USE_METER      1
+
 /* Widgets */
 #define LV_USE_ARC        1
 #define LV_USE_BAR        1
