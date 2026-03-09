@@ -45,19 +45,38 @@ static wakeword_callback_t wakeword_callback = NULL;
 // Feed task - continuously sends audio to AFE
 static void feed_task(void *arg)
 {
-    ESP_LOGI(TAG, "Feed task started, chunk size: %d samples", feed_chunk_size);
+    ESP_LOGI(TAG, "Feed task started, chunk size: %d samples (%d bytes)", 
+             feed_chunk_size, feed_chunk_size * sizeof(int16_t));
     
     size_t bytes_to_read = feed_chunk_size * sizeof(int16_t);
+    int feed_count = 0;
+    int32_t max_amplitude = 0;
     
     while (wakeword_enabled) {
         // Read from mic - blocks until we have enough data
         size_t bytes_read = audio_record_chunk((uint8_t *)feed_buffer, bytes_to_read);
         
         if (bytes_read == bytes_to_read) {
+            // Check audio levels periodically
+            feed_count++;
+            if (feed_count % 100 == 0) {
+                // Find max amplitude in this chunk
+                max_amplitude = 0;
+                for (int i = 0; i < feed_chunk_size; i++) {
+                    int16_t sample = feed_buffer[i];
+                    if (sample < 0) sample = -sample;
+                    if (sample > max_amplitude) max_amplitude = sample;
+                }
+                ESP_LOGI(TAG, "Feed #%d, max amplitude: %ld", feed_count, (long)max_amplitude);
+            }
+            
             // Feed to AFE
             afe_handle->feed(afe_data, feed_buffer);
         } else if (bytes_read > 0) {
             ESP_LOGW(TAG, "Partial read: %d/%d bytes", bytes_read, bytes_to_read);
+        } else {
+            ESP_LOGW(TAG, "No audio data read");
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
         
         // Small yield to prevent watchdog
