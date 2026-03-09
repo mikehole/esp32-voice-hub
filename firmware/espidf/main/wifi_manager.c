@@ -119,7 +119,7 @@ void wifi_manager_start(void)
     // Fallback to hardcoded credentials if NVS is empty
     if (!have_creds) {
         ESP_LOGI(TAG, "Using default credentials");
-        strcpy((char*)wifi_config.sta.ssid, "Hyperoptic Fibre 6A50");
+        strcpy((char*)wifi_config.sta.ssid, "Hyperoptic Fibre 6A50 - 2GH");
         strcpy((char*)wifi_config.sta.password, "Ns4R97HZ3ACbts");
         have_creds = true;
     }
