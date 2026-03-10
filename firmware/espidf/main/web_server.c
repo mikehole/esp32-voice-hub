@@ -89,15 +89,25 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
         return ESP_OK;
     }
     
-    // Read and write in chunks
-    char buf[1024];
+    // Read and write in chunks (larger buffer, retry on EAGAIN)
+    char buf[4096];  // Larger buffer for efficiency
     int remaining = req->content_len;
     int received;
+    int retry_count;
     
     while (remaining > 0) {
-        received = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)));
+        retry_count = 0;
+        do {
+            received = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)));
+            if (received == HTTPD_SOCK_ERR_TIMEOUT || received == 0) {
+                // EAGAIN/timeout - retry with small delay
+                vTaskDelay(pdMS_TO_TICKS(10));
+                retry_count++;
+            }
+        } while ((received == HTTPD_SOCK_ERR_TIMEOUT || received == 0) && retry_count < 100);
+        
         if (received <= 0) {
-            ESP_LOGE(TAG, "Receive failed");
+            ESP_LOGE(TAG, "Receive failed after %d retries", retry_count);
             ota_abort();
             httpd_resp_set_status(req, "500 Internal Server Error");
             httpd_resp_send(req, "Receive failed", -1);

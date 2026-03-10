@@ -45,8 +45,8 @@ static size_t record_pos = 0;
 static SemaphoreHandle_t record_mutex = NULL;
 
 #define MAX_RECORD_SIZE (16000 * 2 * 10)  // 10 seconds max at 16kHz 16-bit
-#define SILENCE_THRESHOLD 500             // ~31ms of silence at 16kHz
-#define SILENCE_COUNT_STOP 13             // Stop after ~400ms of silence (was 20/600ms)
+#define SILENCE_THRESHOLD 6000            // Avg amplitude threshold (higher = less sensitive)
+#define SILENCE_COUNT_STOP 25             // Stop after ~750ms of continuous silence
 
 // Forward declarations
 static void start_recording(const char *trigger);
@@ -94,6 +94,13 @@ static bool is_silence(const int16_t *samples, size_t count)
         energy += abs(samples[i]);
     }
     energy /= count;
+    
+    // Debug: log energy periodically
+    static int check_count = 0;
+    if (++check_count % 50 == 0) {
+        ESP_LOGI(TAG, "VAD energy: %ld (threshold: %d)", (long)energy, SILENCE_THRESHOLD);
+    }
+    
     return energy < SILENCE_THRESHOLD;
 }
 
