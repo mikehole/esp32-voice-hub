@@ -45,8 +45,10 @@ static size_t record_pos = 0;
 static SemaphoreHandle_t record_mutex = NULL;
 
 #define MAX_RECORD_SIZE (16000 * 2 * 10)  // 10 seconds max at 16kHz 16-bit
-#define SILENCE_THRESHOLD 6000            // Avg amplitude threshold (higher = less sensitive)
-#define SILENCE_COUNT_STOP 25             // Stop after ~750ms of continuous silence
+// NOTE: Recording audio does NOT have mic gain applied (unlike wakeword feed)
+// Raw mic noise floor ~200-400, speech ~1000-3000
+#define SILENCE_THRESHOLD 800             // Avg amplitude (no gain applied to recording!)
+#define SILENCE_COUNT_STOP 40             // Stop after ~1.2s of continuous silence
 
 // Forward declarations
 static void start_recording(const char *trigger);
