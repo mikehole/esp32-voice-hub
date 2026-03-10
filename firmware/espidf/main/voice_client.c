@@ -46,7 +46,7 @@ static SemaphoreHandle_t record_mutex = NULL;
 
 #define MAX_RECORD_SIZE (16000 * 2 * 10)  // 10 seconds max at 16kHz 16-bit
 #define SILENCE_THRESHOLD 500             // ~31ms of silence at 16kHz
-#define SILENCE_COUNT_STOP 20             // Stop after ~600ms of silence
+#define SILENCE_COUNT_STOP 13             // Stop after ~400ms of silence (was 20/600ms)
 
 // Forward declarations
 static void start_recording(const char *trigger);

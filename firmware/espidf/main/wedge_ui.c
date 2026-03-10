@@ -26,7 +26,7 @@ static const char *TAG = "wedge_ui";
 #define COLOR_BG        lv_color_black()
 #define COLOR_WEDGE     lv_color_hex(0x1a1a2e)
 #define COLOR_WEDGE_ALT lv_color_hex(0x16213e)
-#define COLOR_SELECTED  lv_color_hex(0x0f3460)
+#define COLOR_SELECTED  lv_color_hex(0x5DADE2)  // Cyan highlight
 #define COLOR_CENTER    lv_color_hex(0x1a1a2e)
 #define COLOR_BORDER    lv_color_hex(0x533483)
 #define COLOR_TEXT      lv_color_hex(0x5DADE2)  // Cyan text
@@ -104,10 +104,10 @@ static void update_highlight(void) {
     lv_meter_set_indicator_start_value(highlight_meter, highlight_arc, start);
     lv_meter_set_indicator_end_value(highlight_meter, highlight_arc, end);
     
-    // Update label colors
+    // Update label colors - selected wedge gets dark text (on light bg), others get cyan
     for (int i = 0; i < 8; i++) {
         if (wedge_labels_obj[i]) {
-            lv_color_t color = (i == selected_wedge) ? COLOR_TEXT : lv_color_white();
+            lv_color_t color = (i == selected_wedge) ? lv_color_hex(0x0a1929) : COLOR_TEXT;
             lv_obj_set_style_text_color(wedge_labels_obj[i], color, 0);
         }
     }
@@ -176,7 +176,7 @@ bool wedge_ui_init(void) {
         lv_obj_t* label = lv_label_create(screen);
         lv_label_set_text(label, wedge_labels[i]);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-        lv_obj_set_style_text_color(label, lv_color_white(), 0);
+        lv_obj_set_style_text_color(label, COLOR_TEXT, 0);  // Cyan by default
         lv_obj_set_pos(label, label_x, label_y);
         wedge_labels_obj[i] = label;
     }
