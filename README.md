@@ -9,11 +9,11 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 ## ✨ Features
 
 - 🎤 **Wake word + tap-to-talk** — Say "Computer" or tap to start, Whisper STT → AI → TTS
-- 🦀 **Expressive avatar** — Minerva shows emotions: idle, listening, thinking, speaking, connecting, notification
+- 🦀 **Expressive avatar** — Minerva shows emotions: idle, listening, thinking, speaking, notification
 - 🔔 **Push notifications** — `/api/notify` endpoint for external alerts with tap-to-acknowledge
 - 🎛️ **Radial menu navigation** — rotary encoder + touch gestures
 - 🔵 **Blue Mono UI** — deep navy background, cyan accents, matches hardware bezel
-- 🌐 **Web admin panel** — configure WiFi, API keys, test audio
+- 🌐 **Web admin panel** — configure WiFi, brightness, OTA updates
 - 🔄 **OTA updates** — over-the-air firmware updates via HTTP
 - 🔊 **Audio output** — onboard speaker + 3.5mm DAC
 
@@ -26,10 +26,9 @@ Minerva (the assistant) has expressive avatar states that change based on what s
 | State | Avatar | Ring Animation |
 |-------|--------|----------------|
 | **Idle** | Neutral expression | — |
-| **Connecting** | ⚡ Electrocuted! | 🔵 Blue spinning |
 | **Recording** | 👂 Hand to ear, listening | 🔴 Red pulsing |
 | **Thinking** | 🤔 Contemplative | — |
-| **Speaking** | ✨ Excited | 💠 Cyan pulsing |
+| **Speaking** | ✨ Excited | — |
 | **Notification** | 👆 Tapping screen | 💜 Purple pulsing |
 
 Avatar images are embedded in firmware (~200KB for 8 images).
@@ -99,7 +98,7 @@ idf.py -p /dev/ttyUSB0 flash
 1. Device creates WiFi AP: `ESP32-Voice-Hub`
 2. Connect and the captive portal appears automatically
 3. Select your network and enter credentials
-4. Configure OpenClaw endpoint in the admin panel
+4. Device connects and shows its new IP address
 
 <p align="center">
   <img src="assets/wifi-portal.png" alt="Voice Hub Setup Portal" width="250"/>
@@ -111,7 +110,7 @@ idf.py -p /dev/ttyUSB0 flash
 2. Speak your message (she cups her ear to listen)
 3. Release or stop speaking — silence detection ends recording
 4. Watch her **think** (contemplative pose)
-5. Hear her **respond** (excited pose with cyan pulsing ring)
+5. Hear her **respond** (excited pose)
 
 ### OTA Updates
 
@@ -122,6 +121,8 @@ curl -X POST http://<device-ip>/api/ota/upload \
   --data-binary @build/esp32_voice_hub.bin
 ```
 
+Or use the admin panel's "Check for Updates" button to pull from GitHub releases.
+
 ## 📁 Project Structure
 
 ```
@@ -130,6 +131,7 @@ esp32-voice-hub/
 │   └── espidf/
 │       ├── main/
 │       │   ├── main.c              # Application entry
+│       │   ├── config.c            # NVS configuration storage
 │       │   ├── voice_client.c      # WebSocket + touch handling
 │       │   ├── wakeword.c          # ESP-SR wake word detection
 │       │   ├── audio.c             # I2S mic + DAC playback
@@ -142,6 +144,7 @@ esp32-voice-hub/
 │       │   └── avatar_images.h     # Embedded avatar images (RGB565)
 │       ├── sdkconfig.defaults
 │       └── CMakeLists.txt
+├── openclaw-plugin/                 # OpenClaw voice server plugin
 ├── avatar-poses/                    # Source avatar images
 │   └── mike-picks/cropped/          # Processed 130x130 images
 ├── assets/                          # Product photos & mockups
@@ -181,23 +184,25 @@ FreeRTOS tasks handle wake word detection and audio recording on separate cores.
 
 ## ⚙️ Configuration
 
-Via web admin panel (`http://<device-ip>/admin`) or NVS storage:
+### WiFi Setup (Captive Portal)
 
-<p align="center">
-  <img src="docs/images/admin-panel.png" alt="Voice Hub Admin Panel" width="300"/>
-</p>
+On first boot (or after reset), the device creates an open WiFi network `ESP32-Voice-Hub`. Connect to it and select your home network from the list.
 
-| Setting | Description |
+### Admin Panel
+
+Access the admin panel at `http://<device-ip>/admin`:
+
+| Feature | Description |
 |---------|-------------|
-| WiFi SSID/Password | Network credentials |
-| OpenClaw Endpoint | WebSocket URL (e.g., `ws://192.168.1.100:8765`) |
-| Display Brightness | 0-100% with live preview |
-| Wake Word | Enable/disable "Computer" detection |
+| **Status** | IP address, version, uptime, memory, WiFi signal, wake word status |
+| **Firmware Update** | Check GitHub for updates, one-click install |
+| **Display** | Brightness slider (10-100%), screenshot capture |
+| **Audio Test** | Test TTS playback |
+| **System** | Restart device, Reset WiFi (returns to captive portal) |
 
-The admin panel also shows:
-- System status (IP, uptime, heap, PSRAM, WiFi signal)
-- Firmware version and OTA controls
-- Audio recording test tools
+### OpenClaw Configuration
+
+The OpenClaw WebSocket endpoint is currently configured in `config.c` (hardcoded fallback) or via the setup portal's step 2. The device connects to this endpoint for voice processing.
 
 ## 📡 API Endpoints
 
@@ -205,14 +210,23 @@ The device exposes REST endpoints for external integration:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/` | GET | Setup portal (AP mode) or redirect to admin |
+| `/setup` | GET | WiFi setup wizard |
+| `/admin` | GET | Admin panel |
 | `/api/status` | GET | Device status JSON |
+| `/api/config` | GET | Current configuration |
+| `/api/config/openclaw` | POST | Set OpenClaw URL/token |
+| `/api/wifi/scan` | GET | Scan for WiFi networks |
+| `/api/wifi/connect` | POST | Connect to WiFi network |
+| `/api/wifi/reset` | GET | Clear WiFi credentials, restart in AP mode |
 | `/api/notify` | POST | Queue notification (tap to acknowledge + TTS) |
 | `/api/notify-audio` | POST | Queue pre-rendered audio notification |
 | `/api/play` | POST | Play raw PCM audio immediately |
 | `/api/brightness` | GET | Set brightness (`?v=0-100`) |
 | `/api/screenshot` | GET | Capture display as BMP |
+| `/api/ota/check` | GET | Check for firmware updates |
 | `/api/ota/upload` | POST | Upload firmware binary |
-| `/api/ota/check` | GET | Check for updates (GitHub releases) |
+| `/api/ota/url` | POST | Install firmware from URL |
 | `/api/restart` | GET | Restart device |
 
 ### Push Notifications
@@ -245,15 +259,17 @@ curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
 - [x] Voice assistant with wake word ("Computer") + tap-to-talk
 - [x] Expressive avatar states (idle, listening, thinking, speaking, notification)
 - [x] Push notifications with tap-to-acknowledge
-- [x] Web admin panel & WiFi captive portal
+- [x] WiFi captive portal for easy setup
+- [x] Web admin panel (status, brightness, OTA, screenshot)
 - [x] Hierarchical menus (Settings submenu)
 - [x] Rotary encoder navigation
-- [x] OTA firmware updates
+- [x] OTA firmware updates (upload + GitHub releases)
 - [x] Screenshot API
 - [x] GitHub Actions CI
 - [x] 3D printable desk stand
 
 ### Planned 🚧
+- [ ] **OpenClaw config in admin panel** — UI to set WebSocket URL
 - [ ] **Web flasher** — Browser-based flashing via ESP Web Tools
 - [ ] **Bluetooth HID** — Device pairs with PC as keyboard/media controller
 - [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand (BT HID shortcuts)
