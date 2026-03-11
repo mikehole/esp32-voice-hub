@@ -68,10 +68,15 @@ esp_err_t ota_update_from_url(const char* url)
         .url = url,
         .timeout_ms = 60000,
         .crt_bundle_attach = esp_crt_bundle_attach,  // Use certificate bundle for HTTPS
+        .buffer_size = 2048,           // Receive buffer (large for GitHub redirects)
+        .buffer_size_tx = 1024,        // Transmit buffer  
     };
     
     esp_https_ota_config_t ota_config = {
         .http_config = &config,
+        .http_client_init_cb = NULL,
+        .bulk_flash_erase = false,
+        .partial_http_download = false,
     };
     
     esp_err_t ret = esp_https_ota(&ota_config);

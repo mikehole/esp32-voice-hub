@@ -15,6 +15,7 @@
 
 #include "web_server.h"
 #include "ota_update.h"
+#include "update_checker.h"
 #include "wifi_manager.h"
 #include "audio.h"
 #include "display.h"
@@ -61,14 +62,23 @@ static const char ADMIN_HTML[] =
 ".value{font-weight:bold}"
 "button{padding:10px 20px;background:#5DADE2;color:#0A1929;border:none;border-radius:8px;font-weight:bold;cursor:pointer;margin:5px}"
 "button.danger{background:#E74C3C}"
+"button.success{background:#27AE60}"
 "input[type=range]{width:100%}"
 ".section{margin-top:20px;padding-top:15px;border-top:2px solid #2E86AB}"
 "#screen{max-width:100%;border-radius:10px;margin-top:10px}"
+".update-box{background:#1a3a5c;padding:10px;border-radius:8px;margin-top:10px}"
 "</style></head><body>"
 "<div class=\"c\">"
 "<div class=\"l\">&#129417;</div>"
 "<h1>Voice Hub Admin</h1>"
 "<div id=\"status\">Loading...</div>"
+"<div class=\"section\">"
+"<h3>Firmware Update</h3>"
+"<div id=\"updateStatus\">Click to check for updates</div>"
+"<button onclick=\"checkUpdate()\">Check for Updates</button>"
+"<button id=\"installBtn\" class=\"success\" style=\"display:none\" onclick=\"installUpdate()\">Install Update</button>"
+"<div id=\"updateInfo\" class=\"update-box\" style=\"display:none\"></div>"
+"</div>"
 "<div class=\"section\">"
 "<h3>Display</h3>"
 "<label>Brightness: <span id=\"bval\">100</span>%</label>"
@@ -84,10 +94,10 @@ static const char ADMIN_HTML[] =
 "<div class=\"section\">"
 "<h3>System</h3>"
 "<button onclick=\"restart()\">Restart Device</button>"
-"<button class=\"danger\" onclick=\"otaMode()\">Enter OTA Mode</button>"
 "</div>"
 "</div>"
 "<script>"
+"var updateUrl='';"
 "function load(){"
 "fetch('/api/status').then(r=>r.json()).then(d=>{"
 "var h='';"
@@ -101,6 +111,36 @@ static const char ADMIN_HTML[] =
 "document.getElementById('status').innerHTML=h;"
 "document.getElementById('brightness').value=d.brightness;"
 "document.getElementById('bval').innerText=d.brightness;"
+"});"
+"}"
+"function checkUpdate(){"
+"document.getElementById('updateStatus').innerText='Checking...';"
+"document.getElementById('installBtn').style.display='none';"
+"fetch('/api/ota/check').then(r=>r.json()).then(d=>{"
+"if(d.available){"
+"document.getElementById('updateStatus').innerHTML='<strong>Update available!</strong>';"
+"document.getElementById('updateInfo').style.display='block';"
+"document.getElementById('updateInfo').innerHTML='New version: '+d.version+'<br>Current: '+d.current;"
+"document.getElementById('installBtn').style.display='inline-block';"
+"updateUrl=d.url;"
+"}else{"
+"document.getElementById('updateStatus').innerText='Up to date ('+d.current+')';"
+"document.getElementById('updateInfo').style.display='none';"
+"}"
+"}).catch(e=>{"
+"document.getElementById('updateStatus').innerText='Check failed: '+e;"
+"});"
+"}"
+"function installUpdate(){"
+"if(!updateUrl){alert('No update URL');return;}"
+"if(!confirm('Install firmware update? Device will restart.')){return;}"
+"document.getElementById('updateStatus').innerText='Installing... (this takes ~1 minute)';"
+"document.getElementById('installBtn').style.display='none';"
+"fetch('/api/ota/url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:updateUrl})}).then(r=>{"
+"document.getElementById('updateStatus').innerText='Update started, device restarting...';"
+"setTimeout(()=>location.reload(),60000);"
+"}).catch(e=>{"
+"document.getElementById('updateStatus').innerText='Install failed: '+e;"
 "});"
 "}"
 "function setBrightness(v){"
@@ -124,11 +164,6 @@ static const char ADMIN_HTML[] =
 "function restart(){"
 "if(confirm('Restart device?')){"
 "fetch('/api/restart').then(()=>alert('Restarting...'));"
-"}"
-"}"
-"function otaMode(){"
-"if(confirm('Enter OTA mode? Wake word will be paused.')){"
-"fetch('/api/ota/mode').then(()=>alert('OTA mode enabled. Upload firmware now.'));"
 "}"
 "}"
 "load();setInterval(load,5000);"
@@ -269,7 +304,64 @@ static esp_err_t restart_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// GET /api/ota/mode - Enter OTA mode (pause wakeword)
+// Synchronous update check (blocking)
+static bool check_done = false;
+static bool check_result = false;
+static char check_version[32] = {0};
+
+static void on_check_complete(bool available, const char* version) {
+    check_result = available;
+    if (version) {
+        strncpy(check_version, version, sizeof(check_version) - 1);
+    }
+    check_done = true;
+}
+
+// GET /api/ota/check - Check for firmware updates
+static esp_err_t ota_check_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Checking for updates via web API");
+    
+    // Pause wakeword during check
+    bool was_running = wakeword_is_running();
+    if (was_running) {
+        wakeword_stop();
+    }
+    
+    // Start check
+    check_done = false;
+    check_result = false;
+    check_version[0] = '\0';
+    update_checker_check(on_check_complete);
+    
+    // Wait for completion (with timeout)
+    int timeout = 100;  // 10 seconds max
+    while (!check_done && timeout-- > 0) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    // Resume wakeword
+    if (was_running) {
+        wakeword_start();
+    }
+    
+    // Build response
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "available", check_result);
+    cJSON_AddStringToObject(root, "version", check_version);
+    cJSON_AddStringToObject(root, "current", ota_get_sha256_short());
+    cJSON_AddStringToObject(root, "url", update_checker_get_url());
+    
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    
+    free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// GET /api/ota/mode - Enter OTA mode (pause wakeword) - legacy
 static esp_err_t ota_mode_handler(httpd_req_t *req)
 {
     if (wakeword_is_running()) {
@@ -750,6 +842,13 @@ esp_err_t web_server_start(void)
         .handler = restart_handler
     };
     httpd_register_uri_handler(server, &restart_uri);
+    
+    httpd_uri_t ota_check_uri = {
+        .uri = "/api/ota/check",
+        .method = HTTP_GET,
+        .handler = ota_check_handler
+    };
+    httpd_register_uri_handler(server, &ota_check_uri);
     
     httpd_uri_t ota_mode_uri = {
         .uri = "/api/ota/mode",
