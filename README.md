@@ -184,7 +184,7 @@ API calls run on Core 0 (FreeRTOS task) so UI stays responsive. Avatar images sw
 Via web admin panel (`http://<device-ip>/admin`) or NVS storage:
 
 <p align="center">
-  <img src="assets/admin-panel.png" alt="Minerva Admin Panel" width="300"/>
+  <img src="docs/images/admin-panel.png" alt="Voice Hub Admin Panel" width="300"/>
 </p>
 
 | Setting | Description |
