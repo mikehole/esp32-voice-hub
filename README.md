@@ -226,9 +226,11 @@ The device exposes REST endpoints for external integration:
 | `/api/notify` | POST | Queue notification (tap to acknowledge + TTS) |
 | `/api/notify-audio` | POST | Queue pre-rendered audio notification |
 | `/api/play` | POST | Play raw PCM audio immediately |
+| `/api/record` | GET | Record from mic (`?duration=3000` ms, returns PCM) |
 | `/api/brightness` | GET | Set brightness (`?v=0-100`) |
 | `/api/screenshot` | GET | Capture display as BMP |
 | `/api/ota/check` | GET | Check for firmware updates |
+| `/api/ota/mode` | GET | Enter OTA mode (pauses wake word) |
 | `/api/ota/upload` | POST | Upload firmware binary |
 | `/api/ota/url` | POST | Install firmware from URL |
 | `/api/restart` | GET | Restart device |
