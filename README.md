@@ -19,6 +19,15 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 
 > ⚠️ **Current Status:** Only the **Minerva** (voice assistant) wedge is functional. Other wedges (Music, Weather, Home, etc.) are UI placeholders for future development.
 
+## 🔀 Firmware Versions
+
+| Version | Framework | Wake Word | Voice Backend | Best For |
+|---------|-----------|-----------|---------------|----------|
+| [**ESP-IDF**](firmware/espidf/) | Pure ESP-IDF 5.5 | ✅ "Hi ESP" (ESP-SR) | WebSocket → OpenClaw | Production use |
+| [**PlatformIO**](firmware/platformio/) | Arduino + ESP-IDF | ❌ Tap only | Direct OpenAI API | Quick prototyping |
+
+**Recommended:** Use the ESP-IDF version for wake word support and better stability.
+
 ## 🎭 Avatar States
 
 Minerva (the assistant) has expressive avatar states that change based on what she's doing:
@@ -230,9 +239,13 @@ This is perfect for integrating with OpenClaw, Home Assistant, or any automation
 - [x] Conversation memory (SD card)
 - [x] 3D printable desk stand
 - [x] Push notification endpoint (`/api/notify`)
+- [x] **Wake word detection** — "Hi ESP" via ESP-SR (ESP-IDF version)
+- [x] **Hierarchical menus** — Settings submenu with OTA, brightness, volume, etc.
+- [x] **Rotary encoder** — Smooth navigation with accumulate+poll pattern
+- [x] **OTA updates** — Over-the-air firmware updates via HTTP
+- [x] **Screenshot API** — Capture display for debugging
 
 ### Planned 🚧
-- [ ] **Hierarchical menus** — Tap wedge to enter submenu, tap center to go back
 - [ ] **Bluetooth HID** — Device pairs with PC as a keyboard/media controller
 - [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand, screen share, leave (BT HID)
 - [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys). Encoder = volume knob!
