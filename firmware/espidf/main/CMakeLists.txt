@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS 
         "main.c"
+        "config.c"
         "wifi_manager.c"
         "web_server.c"
         "ota_update.c"

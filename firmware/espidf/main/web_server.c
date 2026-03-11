@@ -18,6 +18,7 @@
 #include "update_checker.h"
 #include "voice_client.h"
 #include "wifi_manager.h"
+#include "config.h"
 #include "audio.h"
 #include "display.h"
 #include "wakeword.h"
@@ -172,6 +173,139 @@ static const char ADMIN_HTML[] =
 "</script></body></html>";
 
 // ============================================================================
+// Setup Portal HTML (Captive Portal)
+// ============================================================================
+
+static const char SETUP_HTML[] = 
+"<!DOCTYPE html><html><head>"
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>Voice Hub Setup</title>"
+"<style>"
+"*{box-sizing:border-box}"
+"body{font-family:sans-serif;background:#0A1929;color:#5DADE2;margin:0;padding:20px}"
+".c{max-width:400px;margin:0 auto;background:#0F2744;border-radius:15px;padding:20px;border:2px solid #2E86AB}"
+"h1,h2{text-align:center;margin-top:0}"
+".l{text-align:center;font-size:50px}"
+"label{display:block;margin:15px 0 5px;color:#85C1E9}"
+"input,select{width:100%;padding:12px;border:2px solid #2E86AB;border-radius:8px;background:#1a3a5c;color:#fff;font-size:16px}"
+"input:focus,select:focus{outline:none;border-color:#5DADE2}"
+"button{width:100%;padding:15px;background:#5DADE2;color:#0A1929;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;margin-top:15px}"
+"button:hover{background:#85C1E9}"
+"button:disabled{background:#2E86AB;cursor:not-allowed}"
+".step{display:none}.step.active{display:block}"
+".status{text-align:center;padding:10px;margin:10px 0;border-radius:8px}"
+".status.ok{background:#27AE60;color:#fff}"
+".status.err{background:#E74C3C;color:#fff}"
+".status.info{background:#2E86AB;color:#fff}"
+".networks{max-height:200px;overflow-y:auto;margin:10px 0}"
+".net{padding:10px;background:#1a3a5c;margin:5px 0;border-radius:8px;cursor:pointer;display:flex;justify-content:space-between}"
+".net:hover{background:#2E86AB}"
+".net .rssi{color:#85C1E9;font-size:12px}"
+".skip{text-align:center;margin-top:15px}"
+".skip a{color:#85C1E9;cursor:pointer}"
+"</style></head><body>"
+"<div class=\"c\">"
+"<div class=\"l\">&#129417;</div>"
+"<h1>Voice Hub Setup</h1>"
+
+// Step 1: WiFi
+"<div id=\"step1\" class=\"step active\">"
+"<h2>1. Connect to WiFi</h2>"
+"<div id=\"scanStatus\" class=\"status info\">Scanning for networks...</div>"
+"<div id=\"networks\" class=\"networks\"></div>"
+"<label>Network Name (SSID)</label>"
+"<input type=\"text\" id=\"ssid\" placeholder=\"Select or enter network name\">"
+"<label>Password</label>"
+"<input type=\"password\" id=\"password\" placeholder=\"WiFi password\">"
+"<button onclick=\"connectWifi()\">Connect</button>"
+"<div id=\"wifiStatus\"></div>"
+"</div>"
+
+// Step 2: OpenClaw
+"<div id=\"step2\" class=\"step\">"
+"<h2>2. Configure OpenClaw</h2>"
+"<p style=\"color:#85C1E9;font-size:14px\">Enter your OpenClaw WebSocket URL. This is where voice requests will be sent.</p>"
+"<label>OpenClaw URL</label>"
+"<input type=\"text\" id=\"ocUrl\" placeholder=\"ws://192.168.1.100:8765\">"
+"<label>Token (optional)</label>"
+"<input type=\"password\" id=\"ocToken\" placeholder=\"Authentication token\">"
+"<button onclick=\"saveOpenClaw()\">Save & Finish</button>"
+"<div class=\"skip\"><a onclick=\"skipOpenClaw()\">Skip for now</a></div>"
+"<div id=\"ocStatus\"></div>"
+"</div>"
+
+// Step 3: Done
+"<div id=\"step3\" class=\"step\">"
+"<h2>&#10003; Setup Complete!</h2>"
+"<p style=\"text-align:center\">Your Voice Hub is configured and ready to use.</p>"
+"<div id=\"finalIp\" class=\"status ok\"></div>"
+"<p style=\"text-align:center;color:#85C1E9\">Say \"Hi ESP\" or tap the screen to start talking.</p>"
+"<button onclick=\"location.href='/admin'\">Open Admin Panel</button>"
+"</div>"
+
+"</div>"
+"<script>"
+"function showStep(n){"
+"document.querySelectorAll('.step').forEach(s=>s.classList.remove('active'));"
+"document.getElementById('step'+n).classList.add('active');"
+"}"
+"function scan(){"
+"fetch('/api/wifi/scan').then(r=>r.json()).then(nets=>{"
+"document.getElementById('scanStatus').style.display='none';"
+"var h='';"
+"nets.forEach(n=>{"
+"var bars=n.rssi>-50?'\\u2587\\u2587\\u2587':n.rssi>-70?'\\u2587\\u2587':'\\u2587';"
+"h+='<div class=\"net\" onclick=\"selectNet(\\''+n.ssid+'\\')\"><span>'+n.ssid+(n.secure?' \\uD83D\\uDD12':'')+'</span><span class=\"rssi\">'+bars+' '+n.rssi+'</span></div>';"
+"});"
+"document.getElementById('networks').innerHTML=h||'<div class=\"status info\">No networks found</div>';"
+"}).catch(e=>{"
+"document.getElementById('scanStatus').className='status err';"
+"document.getElementById('scanStatus').innerText='Scan failed: '+e;"
+"});"
+"}"
+"function selectNet(ssid){"
+"document.getElementById('ssid').value=ssid;"
+"document.getElementById('password').focus();"
+"}"
+"function connectWifi(){"
+"var ssid=document.getElementById('ssid').value;"
+"var pass=document.getElementById('password').value;"
+"if(!ssid){alert('Enter network name');return;}"
+"document.getElementById('wifiStatus').innerHTML='<div class=\"status info\">Connecting...</div>';"
+"fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:ssid,password:pass})}).then(r=>r.json()).then(d=>{"
+"if(d.success){"
+"document.getElementById('wifiStatus').innerHTML='<div class=\"status ok\">Connected! IP: '+d.ip+'</div>';"
+"setTimeout(()=>showStep(2),1500);"
+"}else{"
+"document.getElementById('wifiStatus').innerHTML='<div class=\"status err\">Failed: '+d.error+'</div>';"
+"}"
+"}).catch(e=>{"
+"document.getElementById('wifiStatus').innerHTML='<div class=\"status err\">Error: '+e+'</div>';"
+"});"
+"}"
+"function saveOpenClaw(){"
+"var url=document.getElementById('ocUrl').value;"
+"var token=document.getElementById('ocToken').value;"
+"if(!url){alert('Enter OpenClaw URL');return;}"
+"fetch('/api/config/openclaw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,token:token})}).then(r=>r.json()).then(d=>{"
+"if(d.success){"
+"document.getElementById('finalIp').innerText='Device IP: '+d.ip;"
+"showStep(3);"
+"}else{"
+"document.getElementById('ocStatus').innerHTML='<div class=\"status err\">Failed: '+d.error+'</div>';"
+"}"
+"});"
+"}"
+"function skipOpenClaw(){"
+"fetch('/api/status').then(r=>r.json()).then(d=>{"
+"document.getElementById('finalIp').innerText='Device IP: '+d.ip;"
+"showStep(3);"
+"});"
+"}"
+"scan();"
+"</script></body></html>";
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -199,6 +333,154 @@ static bool check_auth(httpd_req_t *req)
 // ============================================================================
 // Handlers
 // ============================================================================
+
+// GET / or /setup - Setup portal (captive portal landing page)
+static esp_err_t setup_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, SETUP_HTML, strlen(SETUP_HTML));
+    return ESP_OK;
+}
+
+// Captive portal detection endpoints
+static esp_err_t captive_handler(httpd_req_t *req)
+{
+    // Redirect to setup page
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/setup");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+// GET /api/wifi/scan - Scan for WiFi networks
+static esp_err_t wifi_scan_handler(httpd_req_t *req)
+{
+    char *json = wifi_manager_scan();
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    return ESP_OK;
+}
+
+// POST /api/wifi/connect - Connect to WiFi network
+static esp_err_t wifi_connect_handler(httpd_req_t *req)
+{
+    char buf[256] = {0};
+    int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_OK;
+    }
+    
+    cJSON *ssid_json = cJSON_GetObjectItem(root, "ssid");
+    cJSON *pass_json = cJSON_GetObjectItem(root, "password");
+    
+    if (!ssid_json || !cJSON_IsString(ssid_json)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing SSID");
+        return ESP_OK;
+    }
+    
+    const char *ssid = ssid_json->valuestring;
+    const char *password = pass_json && cJSON_IsString(pass_json) ? pass_json->valuestring : "";
+    
+    ESP_LOGI(TAG, "Connecting to WiFi: %s", ssid);
+    
+    // Start connection (this saves credentials and switches from AP to STA mode)
+    esp_err_t err = wifi_manager_connect(ssid, password);
+    
+    cJSON *response = cJSON_CreateObject();
+    
+    if (err == ESP_OK) {
+        // Wait a bit for connection
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        
+        if (wifi_manager_get_state() == WIFI_STATE_CONNECTED) {
+            cJSON_AddBoolToObject(response, "success", true);
+            cJSON_AddStringToObject(response, "ip", wifi_manager_get_ip());
+        } else {
+            cJSON_AddBoolToObject(response, "success", false);
+            cJSON_AddStringToObject(response, "error", "Connection timeout");
+            // Go back to AP mode
+            wifi_manager_start_ap();
+        }
+    } else {
+        cJSON_AddBoolToObject(response, "success", false);
+        cJSON_AddStringToObject(response, "error", "Failed to start connection");
+    }
+    
+    char *json = cJSON_PrintUnformatted(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    
+    free(json);
+    cJSON_Delete(response);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// POST /api/config/openclaw - Configure OpenClaw endpoint
+static esp_err_t config_openclaw_handler(httpd_req_t *req)
+{
+    char buf[512] = {0};
+    int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_OK;
+    }
+    
+    cJSON *url_json = cJSON_GetObjectItem(root, "url");
+    cJSON *token_json = cJSON_GetObjectItem(root, "token");
+    
+    const char *url = url_json && cJSON_IsString(url_json) ? url_json->valuestring : "";
+    const char *token = token_json && cJSON_IsString(token_json) ? token_json->valuestring : "";
+    
+    config_set_openclaw(url, token);
+    
+    // Tell voice client to reconnect with new URL
+    if (strlen(url) > 0) {
+        voice_client_connect(url);
+    }
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", true);
+    cJSON_AddStringToObject(response, "ip", wifi_manager_get_ip());
+    
+    char *json = cJSON_PrintUnformatted(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    
+    free(json);
+    cJSON_Delete(response);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// GET /api/config - Get current configuration
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    const config_t *cfg = config_get();
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "wifi_ssid", cfg->wifi_ssid);
+    cJSON_AddStringToObject(root, "openclaw_url", cfg->openclaw_url);
+    cJSON_AddBoolToObject(root, "openclaw_configured", config_has_openclaw());
+    cJSON_AddNumberToObject(root, "brightness", cfg->brightness);
+    cJSON_AddBoolToObject(root, "wakeword", cfg->wakeword_enabled);
+    cJSON_AddNumberToObject(root, "volume", cfg->volume);
+    
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    
+    free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
 
 // GET /admin - Admin web interface
 static esp_err_t admin_handler(httpd_req_t *req)
@@ -891,6 +1173,65 @@ esp_err_t web_server_start(void)
     start_time = esp_timer_get_time();
     
     // Register endpoints
+    
+    // Setup portal (captive portal)
+    httpd_uri_t setup_uri = {
+        .uri = "/setup",
+        .method = HTTP_GET,
+        .handler = setup_handler
+    };
+    httpd_register_uri_handler(server, &setup_uri);
+    
+    // Root redirects to setup in AP mode, admin otherwise
+    httpd_uri_t root_uri = {
+        .uri = "/",
+        .method = HTTP_GET,
+        .handler = wifi_manager_is_ap_mode() ? setup_handler : admin_handler
+    };
+    httpd_register_uri_handler(server, &root_uri);
+    
+    // Captive portal detection (various OS probes)
+    httpd_uri_t captive_uris[] = {
+        {.uri = "/generate_204", .method = HTTP_GET, .handler = captive_handler},
+        {.uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = captive_handler},
+        {.uri = "/connecttest.txt", .method = HTTP_GET, .handler = captive_handler},
+        {.uri = "/ncsi.txt", .method = HTTP_GET, .handler = captive_handler},
+        {.uri = "/redirect", .method = HTTP_GET, .handler = captive_handler},
+    };
+    for (int i = 0; i < sizeof(captive_uris)/sizeof(captive_uris[0]); i++) {
+        httpd_register_uri_handler(server, &captive_uris[i]);
+    }
+    
+    // WiFi config endpoints
+    httpd_uri_t wifi_scan_uri = {
+        .uri = "/api/wifi/scan",
+        .method = HTTP_GET,
+        .handler = wifi_scan_handler
+    };
+    httpd_register_uri_handler(server, &wifi_scan_uri);
+    
+    httpd_uri_t wifi_connect_uri = {
+        .uri = "/api/wifi/connect",
+        .method = HTTP_POST,
+        .handler = wifi_connect_handler
+    };
+    httpd_register_uri_handler(server, &wifi_connect_uri);
+    
+    // Config endpoints
+    httpd_uri_t config_get_uri = {
+        .uri = "/api/config",
+        .method = HTTP_GET,
+        .handler = config_get_handler
+    };
+    httpd_register_uri_handler(server, &config_get_uri);
+    
+    httpd_uri_t config_openclaw_uri = {
+        .uri = "/api/config/openclaw",
+        .method = HTTP_POST,
+        .handler = config_openclaw_handler
+    };
+    httpd_register_uri_handler(server, &config_openclaw_uri);
+    
     httpd_uri_t admin_uri = {
         .uri = "/admin",
         .method = HTTP_GET,

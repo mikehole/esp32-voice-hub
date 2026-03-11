@@ -19,6 +19,7 @@
 #include "wifi_manager.h"
 #include "web_server.h"
 #include "ota_update.h"
+#include "config.h"
 #include "display.h"
 #include "audio.h"
 #include "voice_client.h"
@@ -43,6 +44,10 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "NVS initialized");
+
+    // Initialize configuration (loads from NVS)
+    config_init();
+    ESP_LOGI(TAG, "Configuration loaded");
 
     // Initialize display (LVGL)
     display_init();
@@ -84,15 +89,25 @@ void app_main(void)
 // Callback when WiFi state changes
 static void on_wifi_state_change(wifi_state_t state)
 {
-    if (state == WIFI_STATE_CONNECTED) {
+    if (state == WIFI_STATE_AP_MODE) {
+        ESP_LOGI(TAG, "AP mode - Captive portal at 192.168.4.1");
+        web_server_start();
+        ESP_LOGI(TAG, "Setup portal started");
+    }
+    else if (state == WIFI_STATE_CONNECTED) {
         ESP_LOGI(TAG, "WiFi connected! IP: %s", wifi_manager_get_ip());
         ota_init();
         web_server_start();
         ESP_LOGI(TAG, "Web server started - OTA ready!");
         
-        // Connect to OpenClaw plugin WebSocket
-        // TODO: Make this configurable via NVS or web UI
-        voice_client_connect("ws://192.168.1.223:8765");
+        // Connect to OpenClaw if configured
+        const config_t *cfg = config_get();
+        if (config_has_openclaw()) {
+            ESP_LOGI(TAG, "Connecting to OpenClaw: %s", cfg->openclaw_url);
+            voice_client_connect(cfg->openclaw_url);
+        } else {
+            ESP_LOGW(TAG, "OpenClaw not configured - use /setup to configure");
+        }
         
         // Start wake word detection after a short delay
         vTaskDelay(pdMS_TO_TICKS(1000));
