@@ -38,38 +38,28 @@ jobs:
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
           echo "Built version: ${VERSION} (${SHA})"
 
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          cp firmware/espidf/build/esp32_voice_hub.bin release/
+          cp firmware/espidf/build/bootloader/bootloader.bin release/
+          cp firmware/espidf/build/partition_table/partition-table.bin release/
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: esp32-voice-hub-${{ steps.version.outputs.sha }}
-          path: |
-            firmware/espidf/build/esp32_voice_hub.bin
-            firmware/espidf/build/bootloader/bootloader.bin
-            firmware/espidf/build/partition_table/partition-table.bin
+          name: esp32-voice-hub-firmware
+          path: release/
           retention-days: 30
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: esp32-voice-hub-*
-          merge-multiple: true
-
       - name: Create/Update latest release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
           name: Latest Build
           prerelease: true
-          files: |
-            esp32_voice_hub.bin
-            bootloader.bin
-            partition-table.bin
+          files: release/*
           body: |
             Latest firmware build from main branch.
             
