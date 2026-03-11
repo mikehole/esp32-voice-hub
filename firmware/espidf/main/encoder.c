@@ -61,3 +61,4 @@ bool encoder_has_pending(void)
 {
     return accumulated_delta != 0;
 }
+
