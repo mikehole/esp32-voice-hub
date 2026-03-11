@@ -102,7 +102,7 @@ idf.py -p /dev/ttyUSB0 flash
 4. Configure OpenClaw endpoint in the admin panel
 
 <p align="center">
-  <img src="assets/wifi-portal.png" alt="Minerva WiFi Portal" width="250"/>
+  <img src="assets/wifi-portal.png" alt="Voice Hub Setup Portal" width="250"/>
 </p>
 
 ### Using the Device
