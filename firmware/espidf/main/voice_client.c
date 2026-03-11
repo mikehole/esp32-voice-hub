@@ -15,12 +15,15 @@
 #include "wedge_ui.h"
 #include "encoder.h"
 #include "update_checker.h"
+#include "ring_buffer.h"
+#include "notification.h"
 
 #include <string.h>
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/event_groups.h"
 #include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "esp_heap_caps.h"
@@ -57,17 +60,25 @@ static SemaphoreHandle_t record_mutex = NULL;
 // Streaming audio state
 typedef enum {
     STREAM_IDLE,
-    STREAM_BUFFERING,
-    STREAM_PLAYING
+    STREAM_BUFFERING,   // Receiving data, waiting for threshold
+    STREAM_PLAYING,     // Playback in progress
+    STREAM_DRAINING     // No more input, playing remaining buffer
 } stream_state_t;
 
-static stream_state_t stream_state = STREAM_IDLE;
-static uint8_t *stream_buffer = NULL;
-static size_t stream_buffer_size = 0;
-static size_t stream_write_pos = 0;
+static volatile stream_state_t stream_state = STREAM_IDLE;
+static uint8_t *stream_buffer_mem = NULL;
+static ring_buffer_t stream_rb;
 static uint32_t stream_sample_rate = 24000;
-#define STREAM_BUFFER_SIZE (24000 * 2 * 10)  // 10 seconds max at 24kHz 16-bit
-#define STREAM_PLAYBACK_THRESHOLD (24000 * 2 / 20)  // Start after 50ms buffered (2400 bytes)
+static TaskHandle_t playback_task_handle = NULL;
+static EventGroupHandle_t playback_events = NULL;
+
+#define STREAM_BUFFER_SIZE (24000 * 2 * 30)  // 30 seconds ring buffer at 24kHz 16-bit
+#define STREAM_START_THRESHOLD (24000 * 2 * 3 / 10)  // Start after 300ms buffered (14400 bytes)
+#define STREAM_CHUNK_SIZE 1024  // Feed I2S in 1KB chunks
+
+// Event bits for playback task
+#define PLAYBACK_START_BIT BIT0
+#define PLAYBACK_STOP_BIT BIT1
 
 // Forward declarations
 static void start_recording(const char *trigger);
@@ -111,29 +122,28 @@ static void ws_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
                                 cJSON *rate = cJSON_GetObjectItem(json, "sampleRate");
                                 stream_sample_rate = (rate && cJSON_IsNumber(rate)) ? rate->valueint : 24000;
                                 
-                                // Allocate stream buffer in PSRAM
-                                if (!stream_buffer) {
-                                    stream_buffer = heap_caps_malloc(STREAM_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+                                // Allocate stream buffer in PSRAM if needed
+                                if (!stream_buffer_mem) {
+                                    stream_buffer_mem = heap_caps_malloc(STREAM_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+                                    if (stream_buffer_mem) {
+                                        ring_buffer_init(&stream_rb, stream_buffer_mem, STREAM_BUFFER_SIZE);
+                                    }
                                 }
-                                if (stream_buffer) {
-                                    stream_write_pos = 0;
+                                if (stream_buffer_mem) {
+                                    ring_buffer_reset(&stream_rb);
+                                    ring_buffer_start_write(&stream_rb);
                                     stream_state = STREAM_BUFFERING;
                                     display_set_state(DISPLAY_STATE_SPEAKING);
-                                    ESP_LOGI(TAG, "Audio stream started @ %lu Hz", stream_sample_rate);
+                                    ESP_LOGI(TAG, "Audio stream started @ %lu Hz (streaming mode)", stream_sample_rate);
                                 } else {
                                     ESP_LOGE(TAG, "Failed to allocate stream buffer");
                                 }
                             } else if (strcmp(type->valuestring, "audio_stream_end") == 0) {
-                                // End of stream - play the full buffer now
-                                if (stream_state != STREAM_IDLE && stream_buffer && stream_write_pos > 0) {
-                                    ESP_LOGI(TAG, "Audio stream ended, playing %u bytes @ %lu Hz", stream_write_pos, stream_sample_rate);
-                                    audio_play(stream_buffer, stream_write_pos, stream_sample_rate, false);
-                                    stream_state = STREAM_PLAYING;
-                                    // Display stays in SPEAKING until playback done
-                                    // TODO: Add callback from audio module when playback finishes
-                                } else {
-                                    stream_state = STREAM_IDLE;
-                                    display_set_state(DISPLAY_STATE_IDLE);
+                                // End of stream - signal producer done
+                                if (stream_state != STREAM_IDLE) {
+                                    ring_buffer_end_write(&stream_rb);
+                                    stream_state = STREAM_DRAINING;
+                                    ESP_LOGI(TAG, "Audio stream ended, draining %u bytes", ring_buffer_available(&stream_rb));
                                 }
                             }
                         }
@@ -142,18 +152,20 @@ static void ws_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
                     free(json_str);
                 }
             } else if (data->op_code == 0x02) {  // Binary frame
-                // Streaming audio data - just buffer it, play on stream_end
-                if (stream_state != STREAM_IDLE && stream_buffer) {
-                    size_t space = STREAM_BUFFER_SIZE - stream_write_pos;
-                    size_t to_copy = (data->data_len < space) ? data->data_len : space;
+                // Streaming audio data - write to ring buffer
+                if (stream_state != STREAM_IDLE && stream_buffer_mem) {
+                    size_t written = ring_buffer_write(&stream_rb, (const uint8_t *)data->data_ptr, data->data_len);
                     
-                    if (to_copy > 0) {
-                        memcpy(stream_buffer + stream_write_pos, data->data_ptr, to_copy);
-                        stream_write_pos += to_copy;
+                    if (written < (size_t)data->data_len) {
+                        ESP_LOGW(TAG, "Stream buffer full, dropped %d bytes", data->data_len - written);
                     }
                     
-                    if (to_copy < (size_t)data->data_len) {
-                        ESP_LOGW(TAG, "Stream buffer full, dropped %d bytes", data->data_len - to_copy);
+                    // Check if we should start playback (buffering -> playing)
+                    if (stream_state == STREAM_BUFFERING && 
+                        ring_buffer_available(&stream_rb) >= STREAM_START_THRESHOLD) {
+                        stream_state = STREAM_PLAYING;
+                        xEventGroupSetBits(playback_events, PLAYBACK_START_BIT);
+                        ESP_LOGI(TAG, "Starting playback (buffered %u bytes)", ring_buffer_available(&stream_rb));
                     }
                 }
             }
@@ -163,6 +175,77 @@ static void ws_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
             ESP_LOGE(TAG, "WebSocket error");
             break;
     }
+}
+
+// Streaming playback task - runs continuously, feeds I2S from ring buffer
+static void streaming_playback_task(void *arg)
+{
+    ESP_LOGI(TAG, "Streaming playback task started");
+    uint8_t *chunk_buffer = heap_caps_malloc(STREAM_CHUNK_SIZE, MALLOC_CAP_DMA);
+    
+    if (!chunk_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate playback chunk buffer");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    while (1) {
+        // Wait for playback start signal
+        EventBits_t bits = xEventGroupWaitBits(playback_events, 
+            PLAYBACK_START_BIT | PLAYBACK_STOP_BIT,
+            pdTRUE, pdFALSE, portMAX_DELAY);
+        
+        if (bits & PLAYBACK_STOP_BIT) {
+            continue;  // Stop requested, go back to waiting
+        }
+        
+        if (!(bits & PLAYBACK_START_BIT)) {
+            continue;
+        }
+        
+        ESP_LOGI(TAG, "Streaming playback started @ %lu Hz", stream_sample_rate);
+        audio_start_streaming_playback(stream_sample_rate);
+        
+        // Feed I2S until buffer empty and stream ended
+        while (stream_state != STREAM_IDLE) {
+            size_t available = ring_buffer_available(&stream_rb);
+            
+            if (available >= STREAM_CHUNK_SIZE) {
+                // Read chunk and send to I2S
+                size_t read = ring_buffer_read(&stream_rb, chunk_buffer, STREAM_CHUNK_SIZE);
+                if (read > 0) {
+                    audio_write_streaming(chunk_buffer, read);
+                }
+            } else if (available > 0 && !ring_buffer_is_writing(&stream_rb)) {
+                // Draining: play whatever is left
+                size_t read = ring_buffer_read(&stream_rb, chunk_buffer, available);
+                if (read > 0) {
+                    audio_write_streaming(chunk_buffer, read);
+                }
+            } else if (available == 0 && !ring_buffer_is_writing(&stream_rb)) {
+                // Buffer empty and producer done
+                break;
+            } else {
+                // Waiting for more data - yield briefly
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+            
+            // Check for stop request
+            bits = xEventGroupGetBits(playback_events);
+            if (bits & PLAYBACK_STOP_BIT) {
+                xEventGroupClearBits(playback_events, PLAYBACK_STOP_BIT);
+                break;
+            }
+        }
+        
+        audio_stop_streaming_playback();
+        stream_state = STREAM_IDLE;
+        display_set_state(DISPLAY_STATE_IDLE);
+        ESP_LOGI(TAG, "Streaming playback complete");
+    }
+    
+    free(chunk_buffer);
+    vTaskDelete(NULL);
 }
 
 // Check if audio chunk is silence (simple energy-based VAD)
@@ -402,6 +485,53 @@ static void touch_task(void *arg)
         
         // Detect new press (touch down)
         if (pressed && !was_pressed) {
+            // Check for notification acknowledgement first (highest priority)
+            if (notification_pending()) {
+                ESP_LOGI(TAG, "Tap - acknowledging notification");
+                
+                notify_type_t type = notification_get_type();
+                
+                if (type == NOTIFY_AUDIO) {
+                    // Pre-loaded audio notification - play it
+                    size_t audio_size = 0;
+                    uint32_t sample_rate = 0;
+                    const uint8_t* audio = notification_get_audio(&audio_size, &sample_rate);
+                    
+                    if (audio && audio_size > 0) {
+                        notification_acknowledge();  // Clear notification
+                        display_set_state(DISPLAY_STATE_SPEAKING);
+                        
+                        ESP_LOGI(TAG, "Playing notification audio: %u bytes @ %u Hz", audio_size, sample_rate);
+                        
+                        // Copy audio data since notification will be freed
+                        uint8_t* audio_copy = heap_caps_malloc(audio_size, MALLOC_CAP_SPIRAM);
+                        if (audio_copy) {
+                            memcpy(audio_copy, audio, audio_size);
+                            audio_play(audio_copy, audio_size, sample_rate, true);
+                            
+                            // Wait for playback to complete
+                            while (audio_is_playing()) {
+                                vTaskDelay(pdMS_TO_TICKS(50));
+                            }
+                        }
+                        notification_free_audio();
+                        display_set_state(DISPLAY_STATE_IDLE);
+                    }
+                } else {
+                    // Text notification - send to OpenClaw for TTS
+                    const char* text = notification_acknowledge();
+                    if (text && strlen(text) > 0) {
+                        display_set_state(DISPLAY_STATE_SPEAKING);
+                        ESP_LOGI(TAG, "Speaking notification: %.50s%s", text, strlen(text) > 50 ? "..." : "");
+                        voice_client_speak(text);
+                        // State will be set to IDLE when TTS finishes
+                    }
+                }
+                
+                was_pressed = pressed;
+                continue;  // Skip normal touch handling
+            }
+            
             // Check what was touched
             if (is_center_touch(x, y)) {
                 // Center tap - let wedge_ui handle the action
@@ -505,6 +635,12 @@ void voice_client_init(void)
     ESP_LOGI(TAG, "Voice client initializing...");
     
     record_mutex = xSemaphoreCreateMutex();
+    
+    // Create event group for playback task
+    playback_events = xEventGroupCreate();
+    
+    // Start streaming playback task
+    xTaskCreatePinnedToCore(streaming_playback_task, "playback", 4096, NULL, 5, &playback_task_handle, 1);
     
     // Initialize touch
     touch_init();

@@ -26,6 +26,15 @@ bool audio_play(const uint8_t *data, size_t size, uint32_t sample_rate, bool tak
 void audio_stop_playback(void);
 bool audio_is_playing(void);
 
+// Streaming playback functions (for real-time audio)
+bool audio_start_streaming_playback(uint32_t sample_rate);
+void audio_write_streaming(const uint8_t *data, size_t size);
+void audio_stop_streaming_playback(void);
+
 // Volume control (0-100)
 void audio_set_volume(int volume);
 int audio_get_volume(void);
+
+// Convenience wrapper that copies data (doesn't take ownership)
+// For short sounds like attention chimes
+void audio_play_pcm(const uint8_t *data, size_t size, uint32_t sample_rate);

@@ -8,25 +8,16 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 
 ## ✨ Features
 
-- 🎤 **Tap-to-talk voice assistant** — Whisper STT → OpenClaw AI → OpenAI TTS
+- 🎤 **Wake word + tap-to-talk** — Say "Hi ESP" or tap to start, Whisper STT → AI → TTS
 - 🦀 **Expressive avatar** — Minerva shows emotions: idle, listening, thinking, speaking, connecting, notification
-- 🔔 **Push notifications** — `/api/notify` endpoint for external alerts (OpenClaw, Home Assistant, etc.)
+- 🔔 **Push notifications** — `/api/notify` endpoint for external alerts with tap-to-acknowledge
 - 🎛️ **Radial menu navigation** — rotary encoder + touch gestures
 - 🔵 **Blue Mono UI** — deep navy background, cyan accents, matches hardware bezel
-- 💾 **Conversation memory** — persists chat history to SD card
 - 🌐 **Web admin panel** — configure WiFi, API keys, test audio
+- 🔄 **OTA updates** — over-the-air firmware updates via HTTP
 - 🔊 **Audio output** — onboard speaker + 3.5mm DAC
 
 > ⚠️ **Current Status:** Only the **Minerva** (voice assistant) wedge is functional. Other wedges (Music, Weather, Home, etc.) are UI placeholders for future development.
-
-## 🔀 Firmware Versions
-
-| Version | Framework | Wake Word | Voice Backend | Best For |
-|---------|-----------|-----------|---------------|----------|
-| [**ESP-IDF**](firmware/espidf/) | Pure ESP-IDF 5.5 | ✅ "Hi ESP" (ESP-SR) | WebSocket → OpenClaw | Production use |
-| [**PlatformIO**](firmware/platformio/) | Arduino + ESP-IDF | ❌ Tap only | Direct OpenAI API | Quick prototyping |
-
-**Recommended:** Use the ESP-IDF version for wake word support and better stability.
 
 ## 🎭 Avatar States
 
@@ -37,35 +28,35 @@ Minerva (the assistant) has expressive avatar states that change based on what s
 | **Idle** | Neutral expression | — |
 | **Connecting** | ⚡ Electrocuted! | 🔵 Blue spinning |
 | **Recording** | 👂 Hand to ear, listening | 🔴 Red pulsing |
-| **Thinking** | 🤔 Contemplative (2 variants) | — |
-| **Speaking** | ✨ Excited (2 variants) | 💠 Cyan pulsing |
+| **Thinking** | 🤔 Contemplative | — |
+| **Speaking** | ✨ Excited | 💠 Cyan pulsing |
 | **Notification** | 👆 Tapping screen | 💜 Purple pulsing |
 
-Avatar images are embedded in firmware (~200KB for 7 images).
+Avatar images are embedded in firmware (~200KB for 8 images).
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| **Framework** | Arduino + ESP-IDF (pioarduino) |
+| **Framework** | ESP-IDF 5.5 |
 | **UI Library** | [LVGL](https://lvgl.io/) v8 |
 | **Display Driver** | SH8601 (QSPI) via esp_lcd |
 | **Touch Driver** | CST816 (I2C) |
 | **Audio** | I2S PDM microphone + I2S DAC |
-| **Build System** | PlatformIO |
-| **AI Backend** | [OpenClaw](https://github.com/openclaw/openclaw) (or direct OpenAI API) |
+| **Wake Word** | ESP-SR ("Hi ESP") |
+| **AI Backend** | [OpenClaw](https://github.com/openclaw/openclaw) via WebSocket |
 
 ## 🔧 Hardware
 
 | Component | Details |
 |-----------|---------|
 | **Board** | [Waveshare ESP32-S3-Knob-Touch-LCD-1.8](https://www.waveshare.com/wiki/ESP32-S3-Knob-Touch-LCD-1.8) |
-| **Display** | 1.8" round LCD, 360×360, SH8601 (QSPI) |
+| **Display** | 1.8" round AMOLED, 360×360, SH8601 (QSPI) |
 | **Touch** | CST816 capacitive (I2C) |
 | **Audio Out** | Onboard speaker + PCM5101A DAC (3.5mm) |
 | **Audio In** | Onboard PDM digital microphone |
 | **Input** | Rotary encoder with push button |
-| **Storage** | SD card slot (for conversation history) |
+| **Storage** | SD card slot |
 | **MCU** | ESP32-S3R8 (8MB PSRAM, 16MB Flash) |
 
 ### Additional Hardware
@@ -83,23 +74,24 @@ Avatar images are embedded in firmware (~200KB for 7 images).
 
 ### Prerequisites
 
-- [VS Code](https://code.visualstudio.com/)
-- [PlatformIO extension](https://platformio.org/install/ide?install=vscode)
+- [ESP-IDF 5.5+](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/)
 - USB-C cable
-- OpenAI API key (for Whisper + TTS)
-- OpenClaw instance or OpenAI API key for chat
+- OpenClaw instance (or compatible WebSocket voice server)
 
 ### Clone & Build
 
 ```bash
 git clone https://github.com/mikehole/esp32-voice-hub.git
-cd esp32-voice-hub/firmware/platformio
+cd esp32-voice-hub/firmware/espidf
+
+# Configure ESP-IDF environment
+. $IDF_PATH/export.sh
 
 # Build
-pio run
+idf.py build
 
-# Upload
-pio run -t upload
+# Flash (first time - requires USB)
+idf.py -p /dev/ttyUSB0 flash
 ```
 
 ### First Boot
@@ -107,7 +99,7 @@ pio run -t upload
 1. Device creates WiFi AP: `ESP32-Voice-Hub`
 2. Connect and the captive portal appears automatically
 3. Select your network and enter credentials
-4. Configure API keys in the admin panel
+4. Configure OpenClaw endpoint in the admin panel
 
 <p align="center">
   <img src="assets/wifi-portal.png" alt="Minerva WiFi Portal" width="250"/>
@@ -115,38 +107,49 @@ pio run -t upload
 
 ### Using the Device
 
-1. **Select Minerva** (center wedge) using encoder or touch
-2. **Tap center** to start recording (she cups her ear to listen)
-3. **Tap again** to stop recording
+1. Say **"Hi ESP"** to wake, or **tap center** to start recording
+2. Speak your message (she cups her ear to listen)
+3. Release or stop speaking — silence detection ends recording
 4. Watch her **think** (contemplative pose)
 5. Hear her **respond** (excited pose with cyan pulsing ring)
+
+### OTA Updates
+
+After initial USB flash, update over-the-air:
+
+```bash
+curl -X POST http://<device-ip>/api/ota/upload \
+  --data-binary @build/esp32_voice_hub.bin
+```
 
 ## 📁 Project Structure
 
 ```
 esp32-voice-hub/
 ├── firmware/
-│   └── platformio/
-│       ├── src/
-│       │   ├── main.cpp           # Main application
-│       │   ├── avatar.cpp/h       # Avatar state management
-│       │   ├── avatar_images.h    # Embedded avatar images (RGB565)
-│       │   ├── status_ring.cpp/h  # Animated ring effects
-│       │   ├── audio_capture.cpp/h # Microphone & speaker
-│       │   ├── openai_client.cpp/h # Whisper, TTS, OpenClaw
-│       │   ├── conversation.cpp/h  # Chat history (SD card)
-│       │   ├── wifi_manager.cpp/h  # WiFi with captive portal
-│       │   └── web_admin.cpp/h     # Admin panel
-│       └── platformio.ini
-├── avatar-poses/                   # Source avatar images
-│   └── mike-picks/cropped/         # Processed 130x130 images
-├── assets/
-│   └── mockups/                    # UI design mockups
+│   └── espidf/
+│       ├── main/
+│       │   ├── main.c              # Application entry
+│       │   ├── voice_client.c      # WebSocket + touch handling
+│       │   ├── wakeword.c          # ESP-SR wake word detection
+│       │   ├── audio.c             # I2S mic + DAC playback
+│       │   ├── display.c           # LVGL display management
+│       │   ├── wedge_ui.c          # Radial menu UI
+│       │   ├── notification.c      # Push notification system
+│       │   ├── web_server.c        # HTTP API + admin panel
+│       │   ├── wifi_manager.c      # WiFi + captive portal
+│       │   ├── ota_update.c        # OTA firmware updates
+│       │   └── avatar_images.h     # Embedded avatar images (RGB565)
+│       ├── sdkconfig.defaults
+│       └── CMakeLists.txt
+├── avatar-poses/                    # Source avatar images
+│   └── mike-picks/cropped/          # Processed 130x130 images
+├── assets/                          # Product photos & mockups
 ├── docs/
-│   ├── design.md                   # UI design language
-│   └── hardware-notes.md           # Hardware details
+│   ├── design.md                    # UI design language
+│   └── hardware-notes.md            # Hardware details
 └── enclosure/
-    └── stl/                        # 3D printable parts
+    └── stl/                         # 3D printable parts
 ```
 
 ## 🎨 Design Language
@@ -159,25 +162,22 @@ The avatar's circuit traces glow cyan to match the UI accent color.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Main Loop (Core 1)                    │
+│                        Main Loop                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Touch/Encoder│  │ LVGL UI     │  │ Status Ring Anim   │  │
+│  │ Touch/Encoder│  │ LVGL UI     │  │ Notification Update │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                               │
-                    ┌─────────▼─────────┐
-                    │  Avatar State     │ (image swap)
-                    └───────────────────┘
-                              │
 ┌─────────────────────────────────────────────────────────────┐
-│                    Background Task (Core 0)                  │
+│                    Background Tasks                          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Whisper STT │  │ OpenClaw AI │  │ OpenAI TTS          │  │
+│  │ Wake Word   │  │ Recording   │  │ WebSocket Client    │  │
+│  │ (ESP-SR)    │  │ Task        │  │ (OpenClaw)          │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-API calls run on Core 0 (FreeRTOS task) so UI stays responsive. Avatar images swap instead of LVGL animations during background processing (LVGL is not thread-safe).
+FreeRTOS tasks handle wake word detection and audio recording on separate cores. LVGL runs in its own task with mutex protection.
 
 ## ⚙️ Configuration
 
@@ -190,15 +190,14 @@ Via web admin panel (`http://<device-ip>/admin`) or NVS storage:
 | Setting | Description |
 |---------|-------------|
 | WiFi SSID/Password | Network credentials |
-| OpenAI API Key | For Whisper transcription + TTS |
-| OpenClaw Endpoint | e.g., `https://your-server.com` |
-| OpenClaw Token | Gateway authentication token |
+| OpenClaw Endpoint | WebSocket URL (e.g., `ws://192.168.1.100:8765`) |
+| Display Brightness | 0-100% with live preview |
+| Wake Word | Enable/disable "Hi ESP" detection |
 
 The admin panel also shows:
 - System status (IP, uptime, heap, PSRAM, WiFi signal)
-- Display brightness control with live preview
+- Firmware version and OTA controls
 - Audio recording test tools
-- API connectivity testing
 
 ## 📡 API Endpoints
 
@@ -206,11 +205,15 @@ The device exposes REST endpoints for external integration:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/speak` | POST | Text → TTS → play immediately |
-| `/api/notify` | POST | Queue announcement, show notification avatar, wait for user tap |
-| `/api/chat` | POST | Send to OpenClaw AI, speak response |
-| `/api/play` | POST | Play raw PCM/WAV audio |
-| `/api/status` | GET | Device status (IP, heap, uptime, etc.) |
+| `/api/status` | GET | Device status JSON |
+| `/api/notify` | POST | Queue notification (tap to acknowledge + TTS) |
+| `/api/notify-audio` | POST | Queue pre-rendered audio notification |
+| `/api/play` | POST | Play raw PCM audio immediately |
+| `/api/brightness` | GET | Set brightness (`?v=0-100`) |
+| `/api/screenshot` | GET | Capture display as BMP |
+| `/api/ota/upload` | POST | Upload firmware binary |
+| `/api/ota/check` | GET | Check for updates (GitHub releases) |
+| `/api/restart` | GET | Restart device |
 
 ### Push Notifications
 
@@ -228,33 +231,37 @@ curl -X POST http://<device-ip>/api/notify \
 4. Device speaks the announcement via TTS
 5. Returns to idle state
 
-This is perfect for integrating with OpenClaw, Home Assistant, or any automation that needs to get your attention.
+Add `?silent=1` to skip the attention chime.
+
+For pre-rendered audio notifications:
+```bash
+curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
+  --data-binary @notification.pcm
+```
 
 ## 🗺️ Roadmap
 
 ### Done ✅
-- [x] Voice assistant (Minerva) with Whisper STT → AI → TTS
-- [x] Expressive avatar states (idle, listening, thinking, speaking, connecting, notification)
+- [x] Voice assistant with wake word ("Hi ESP") + tap-to-talk
+- [x] Expressive avatar states (idle, listening, thinking, speaking, notification)
+- [x] Push notifications with tap-to-acknowledge
 - [x] Web admin panel & WiFi captive portal
-- [x] Conversation memory (SD card)
+- [x] Hierarchical menus (Settings submenu)
+- [x] Rotary encoder navigation
+- [x] OTA firmware updates
+- [x] Screenshot API
+- [x] GitHub Actions CI
 - [x] 3D printable desk stand
-- [x] Push notification endpoint (`/api/notify`)
-- [x] **Wake word detection** — "Hi ESP" via ESP-SR (ESP-IDF version)
-- [x] **Hierarchical menus** — Settings submenu with OTA, brightness, volume, etc.
-- [x] **Rotary encoder** — Smooth navigation with accumulate+poll pattern
-- [x] **OTA updates** — Over-the-air firmware updates via HTTP
-- [x] **Screenshot API** — Capture display for debugging
-- [x] **GitHub Actions CI** — Automated firmware builds on push
 
 ### Planned 🚧
-- [ ] **Web flasher** — Browser-based flashing via ESP Web Tools (no PlatformIO required)
-- [ ] **Bluetooth HID** — Device pairs with PC as a keyboard/media controller
-- [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand, screen share, leave (BT HID)
-- [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys). Encoder = volume knob!
+- [ ] **Web flasher** — Browser-based flashing via ESP Web Tools
+- [ ] **Bluetooth HID** — Device pairs with PC as keyboard/media controller
+- [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand (BT HID shortcuts)
+- [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys)
 - [ ] **Weather wedge** — Current conditions & forecast
 - [ ] **Home wedge** — Home Assistant integration
 - [ ] **Timer wedge** — Countdown timers & alarms
-- [ ] **Themed avatars** — Unique Minerva for each wedge (some already generated!)
+- [ ] **Themed avatars** — Unique Minerva for each wedge
 
 ## 📝 License
 
@@ -265,4 +272,4 @@ MIT — see [LICENSE](LICENSE)
 - [Waveshare](https://www.waveshare.com/) for the excellent hardware
 - [LVGL](https://lvgl.io/) for the UI library
 - [OpenClaw](https://github.com/openclaw/openclaw) for the AI gateway
-- [pioarduino](https://github.com/pioarduino) for ESP-IDF 5.x PlatformIO support
+- [Espressif](https://github.com/espressif) for ESP-IDF and ESP-SR

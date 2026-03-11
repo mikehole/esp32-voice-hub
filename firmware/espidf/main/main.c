@@ -22,6 +22,7 @@
 #include "display.h"
 #include "audio.h"
 #include "voice_client.h"
+#include "notification.h"
 
 static const char *TAG = "voice_hub";
 
@@ -55,6 +56,10 @@ void app_main(void)
     voice_client_init();
     ESP_LOGI(TAG, "Voice client initialized");
 
+    // Initialize notification system
+    notification_init();
+    ESP_LOGI(TAG, "Notification system initialized");
+
     // Set up WiFi state callback to start web server when connected
     wifi_manager_set_callback(on_wifi_state_change);
     
@@ -68,6 +73,10 @@ void app_main(void)
     // Main loop - handle LVGL and system tasks
     while (1) {
         display_loop();
+        
+        // Update notification system (plays periodic attention sound)
+        notification_update();
+        
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

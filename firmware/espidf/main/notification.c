@@ -1,16 +1,21 @@
 /**
- * Notification System Implementation
+ * Notification System Implementation for ESP-IDF
  */
 
 #include "notification.h"
 #include "attention_sound.h"
-#include "audio_capture.h"
+#include "audio.h"
+#include "esp_log.h"
 #include "esp_heap_caps.h"
-#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <string.h>
+
+static const char* TAG = "notification";
 
 // Notification state
 static char notification_text[NOTIFICATION_MAX_LEN] = {0};
-static NotifyType notify_type = NOTIFY_NONE;
+static notify_type_t notify_type = NOTIFY_NONE;
 static uint32_t last_sound_time = 0;
 static const uint32_t SOUND_INTERVAL_MS = 3000;  // Play sound every 3 seconds
 
@@ -22,7 +27,8 @@ static uint32_t notification_audio_rate = 24000;
 // Silent mode (no attention chime)
 static bool notification_silent = false;
 
-void notification_init() {
+void notification_init(void)
+{
     notification_text[0] = '\0';
     notify_type = NOTIFY_NONE;
     last_sound_time = 0;
@@ -30,21 +36,23 @@ void notification_init() {
     notification_audio_size = 0;
     notification_audio_rate = 24000;
     notification_silent = false;
-    Serial.println("Notification: initialized");
+    ESP_LOGI(TAG, "Notification system initialized");
 }
 
-bool notification_queue(const char* text) {
+bool notification_queue(const char* text)
+{
     return notification_queue_ex(text, false);
 }
 
-bool notification_queue_ex(const char* text, bool silent) {
+bool notification_queue_ex(const char* text, bool silent)
+{
     if (!text || strlen(text) == 0) {
-        Serial.println("Notification: empty text, ignoring");
+        ESP_LOGW(TAG, "Empty text, ignoring");
         return false;
     }
     
     if (strlen(text) >= NOTIFICATION_MAX_LEN) {
-        Serial.println("Notification: text too long");
+        ESP_LOGW(TAG, "Text too long (%d chars)", strlen(text));
         return false;
     }
     
@@ -62,25 +70,27 @@ bool notification_queue_ex(const char* text, bool silent) {
     notification_silent = silent;
     last_sound_time = 0;  // Play sound immediately (unless silent)
     
-    Serial.printf("Notification: queued text '%s' (silent=%d)\n", notification_text, silent);
+    ESP_LOGI(TAG, "Queued text notification (silent=%d): %.50s%s", 
+             silent, notification_text, strlen(notification_text) > 50 ? "..." : "");
     return true;
 }
 
 bool notification_queue_audio(const uint8_t* audio_data, size_t audio_size, 
-                              uint32_t sample_rate, const char* display_text) {
+                              uint32_t sample_rate, const char* display_text)
+{
     return notification_queue_audio_ex(audio_data, audio_size, sample_rate, display_text, false);
 }
 
 bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size, 
-                                  uint32_t sample_rate, const char* display_text, bool silent) {
+                                  uint32_t sample_rate, const char* display_text, bool silent)
+{
     if (!audio_data || audio_size == 0) {
-        Serial.println("Notification: no audio data");
+        ESP_LOGW(TAG, "No audio data");
         return false;
     }
     
     if (audio_size > NOTIFICATION_MAX_AUDIO_SIZE) {
-        Serial.printf("Notification: audio too large (%u > %u)\n", 
-                      audio_size, NOTIFICATION_MAX_AUDIO_SIZE);
+        ESP_LOGW(TAG, "Audio too large (%u > %u)", audio_size, NOTIFICATION_MAX_AUDIO_SIZE);
         return false;
     }
     
@@ -93,7 +103,7 @@ bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size,
     // Allocate buffer in PSRAM
     notification_audio = (uint8_t*)heap_caps_malloc(audio_size, MALLOC_CAP_SPIRAM);
     if (!notification_audio) {
-        Serial.println("Notification: failed to allocate audio buffer");
+        ESP_LOGE(TAG, "Failed to allocate audio buffer in PSRAM");
         return false;
     }
     
@@ -114,37 +124,43 @@ bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size,
     notification_silent = silent;
     last_sound_time = 0;  // Play sound immediately (unless silent)
     
-    Serial.printf("Notification: queued audio (%u bytes @ %u Hz, silent=%d)\n", 
-                  audio_size, sample_rate, silent);
+    ESP_LOGI(TAG, "Queued audio notification (%u bytes @ %u Hz, silent=%d)", 
+             audio_size, sample_rate, silent);
     return true;
 }
 
-bool notification_is_silent() {
+bool notification_is_silent(void)
+{
     return notification_silent;
 }
 
-void notification_free_audio() {
+void notification_free_audio(void)
+{
     if (notification_audio) {
         heap_caps_free(notification_audio);
         notification_audio = NULL;
         notification_audio_size = 0;
-        Serial.println("Notification: audio buffer freed");
+        ESP_LOGI(TAG, "Audio buffer freed");
     }
 }
 
-bool notification_pending() {
+bool notification_pending(void)
+{
     return notify_type != NOTIFY_NONE;
 }
 
-NotifyType notification_get_type() {
+notify_type_t notification_get_type(void)
+{
     return notify_type;
 }
 
-const char* notification_get_text() {
+const char* notification_get_text(void)
+{
     return notification_text;
 }
 
-const uint8_t* notification_get_audio(size_t* out_size, uint32_t* out_sample_rate) {
+const uint8_t* notification_get_audio(size_t* out_size, uint32_t* out_sample_rate)
+{
     if (notify_type != NOTIFY_AUDIO || !notification_audio) {
         if (out_size) *out_size = 0;
         if (out_sample_rate) *out_sample_rate = 0;
@@ -155,25 +171,27 @@ const uint8_t* notification_get_audio(size_t* out_size, uint32_t* out_sample_rat
     return notification_audio;
 }
 
-const char* notification_acknowledge() {
+const char* notification_acknowledge(void)
+{
     if (notify_type == NOTIFY_NONE) {
         return NULL;
     }
     
-    NotifyType type = notify_type;
+    notify_type_t type = notify_type;
     notify_type = NOTIFY_NONE;
     
     if (type == NOTIFY_TEXT) {
-        Serial.printf("Notification: acknowledged text '%s'\n", notification_text);
+        ESP_LOGI(TAG, "Acknowledged text notification");
         return notification_text;
     } else {
-        Serial.printf("Notification: acknowledged audio (%u bytes)\n", notification_audio_size);
+        ESP_LOGI(TAG, "Acknowledged audio notification (%u bytes)", notification_audio_size);
         // Don't free audio yet - caller will play it
         return NULL;
     }
 }
 
-void notification_cancel() {
+void notification_cancel(void)
+{
     notify_type = NOTIFY_NONE;
     notification_text[0] = '\0';
     if (notification_audio) {
@@ -181,58 +199,55 @@ void notification_cancel() {
         notification_audio = NULL;
         notification_audio_size = 0;
     }
-    Serial.println("Notification: cancelled");
+    ESP_LOGI(TAG, "Notification cancelled");
 }
 
-void notification_play_attention() {
-    // Convert 16-bit signed mono to 16-bit signed mono PCM buffer
-    // The attention_sound is already in the right format, just need to cast
-    size_t pcm_size = attention_sound_size;
+void notification_play_attention(void)
+{
+    // Convert 16-bit signed mono to format expected by audio system
+    // Attention sound is 9600 samples @ 24kHz = 400ms
+    size_t pcm_bytes = ATTENTION_SOUND_SAMPLES * sizeof(int16_t);
     
-    // Play as mono audio at 24kHz
-    // Note: audio_play expects unsigned 8-bit or needs adjustment
-    // For 16-bit signed, we need to convert or use raw playback
-    
-    // Quick solution: convert to unsigned 8-bit on the fly
-    // Better solution would be to add 16-bit playback support
-    uint8_t* buffer = (uint8_t*)heap_caps_malloc(pcm_size / 2, MALLOC_CAP_SPIRAM);
+    // Allocate temporary buffer for conversion (16-bit signed to raw bytes)
+    uint8_t* buffer = (uint8_t*)heap_caps_malloc(pcm_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!buffer) {
-        Serial.println("Notification: failed to allocate sound buffer");
+        ESP_LOGE(TAG, "Failed to allocate attention sound buffer");
         return;
     }
     
-    // Convert 16-bit signed to 8-bit unsigned
-    for (size_t i = 0; i < pcm_size / 2; i++) {
-        int16_t sample = attention_sound[i];
-        buffer[i] = (uint8_t)((sample + 32768) >> 8);
-    }
+    // Copy samples (already 16-bit signed, just copy as bytes)
+    memcpy(buffer, attention_sound, pcm_bytes);
     
-    // Play at 24kHz
-    audio_play(buffer, pcm_size / 2, 24000);
+    // Play at 24kHz, 16-bit mono
+    audio_play_pcm(buffer, pcm_bytes, ATTENTION_SOUND_RATE);
     
     heap_caps_free(buffer);
 }
 
-void notification_update() {
+bool notification_update(void)
+{
     if (notify_type == NOTIFY_NONE) {
-        return;
+        return false;
     }
     
     // Don't play sound if something else is playing
     if (audio_is_playing()) {
-        return;
+        return false;
     }
     
     // Skip sound if silent mode
     if (notification_silent) {
-        return;
+        return false;
     }
     
-    uint32_t now = millis();
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
     // Play attention sound periodically
     if (now - last_sound_time >= SOUND_INTERVAL_MS) {
         last_sound_time = now;
         notification_play_attention();
+        return true;
     }
+    
+    return false;
 }

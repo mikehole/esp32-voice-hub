@@ -6,10 +6,13 @@
 #ifndef ATTENTION_SOUND_H
 #define ATTENTION_SOUND_H
 
-#include <Arduino.h>
+#include <stdint.h>
 
 // attention_sound: 9600 samples, 24kHz, 16-bit signed mono
-const int16_t attention_sound[9600] PROGMEM = {
+#define ATTENTION_SOUND_SAMPLES 9600
+#define ATTENTION_SOUND_RATE 24000
+
+static const int16_t attention_sound[ATTENTION_SOUND_SAMPLES] = {
     0, 6, 25, 55, 97, 147, 204, 266, 331, 395, 456, 510, 556, 591, 612, 617,
     605, 574, 523, 453, 364, 256, 131, -8, -160, -322, -489, -659, -828, -990, -1143, -1281,
     -1401, -1498, -1570, -1613, -1625, -1604, -1549, -1458, -1333, -1175, -984, -764, -519, -252, 32, 328,

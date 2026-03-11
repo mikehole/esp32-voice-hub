@@ -14,6 +14,8 @@ idf_component_register(
         "wedge_ui.c"
         "bidi_switch_knob.c"
         "encoder.c"
+        "ring_buffer.c"
+        "notification.c"
     INCLUDE_DIRS "."
     REQUIRES 
         esp_wifi

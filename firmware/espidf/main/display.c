@@ -547,6 +547,10 @@ void display_set_state(display_state_t state)
             status_text = "Speaking...";
             avatar = AVATAR_SPEAKING;
             break;
+        case DISPLAY_STATE_NOTIFICATION:
+            status_text = "Notification";
+            avatar = AVATAR_NOTIFICATION;
+            break;
         case DISPLAY_STATE_ERROR:
             status_text = "Error";
             avatar = AVATAR_IDLE;

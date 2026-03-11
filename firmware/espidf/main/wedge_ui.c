@@ -108,6 +108,7 @@ static lv_img_dsc_t avatar_idle_dsc;
 static lv_img_dsc_t avatar_listening_dsc;
 static lv_img_dsc_t avatar_thinking_dsc;
 static lv_img_dsc_t avatar_speaking_dsc;
+static lv_img_dsc_t avatar_notification_dsc;
 
 // Menu avatars for each wedge
 static lv_img_dsc_t avatar_menu_dsc[7];  // 7 menu avatars (wedges 1-7)
@@ -144,6 +145,13 @@ static void init_avatar_descriptors(void) {
     avatar_speaking_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
     avatar_speaking_dsc.data_size = AVATAR_SIZE * AVATAR_SIZE * 2;
     avatar_speaking_dsc.data = (const uint8_t*)avatar_speaking_1;
+    
+    avatar_notification_dsc.header.always_zero = 0;
+    avatar_notification_dsc.header.w = AVATAR_SIZE;
+    avatar_notification_dsc.header.h = AVATAR_SIZE;
+    avatar_notification_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+    avatar_notification_dsc.data_size = AVATAR_SIZE * AVATAR_SIZE * 2;
+    avatar_notification_dsc.data = (const uint8_t*)avatar_notification;
     
     // Initialize menu avatars (one per wedge 1-7)
     const uint16_t* menu_images[] = {
@@ -367,6 +375,9 @@ void wedge_ui_set_avatar_state(avatar_state_t state) {
             break;
         case AVATAR_SPEAKING:
             img = &avatar_speaking_dsc;
+            break;
+        case AVATAR_NOTIFICATION:
+            img = &avatar_notification_dsc;
             break;
         default:
             img = &avatar_idle_dsc;

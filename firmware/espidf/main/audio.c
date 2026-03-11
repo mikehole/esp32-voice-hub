@@ -324,3 +324,87 @@ int audio_get_volume(void)
 {
     return playback_volume;
 }
+
+// Streaming playback - for real-time audio from ring buffer
+static bool streaming_active = false;
+#define STREAM_WRITE_CHUNK 512
+
+bool audio_start_streaming_playback(uint32_t sample_rate)
+{
+    // Stop any existing playback first
+    if (playing) {
+        ESP_LOGW(TAG, "Stopping existing playback for streaming");
+        audio_stop_playback();
+        vTaskDelay(pdMS_TO_TICKS(50));  // Brief delay for cleanup
+    }
+    if (streaming_active) {
+        ESP_LOGW(TAG, "Streaming already active");
+        return false;
+    }
+    
+    // Configure I2S for playback
+    i2s_channel_disable(tx_chan);
+    
+    i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
+    i2s_channel_reconfig_std_clock(tx_chan, &clk_cfg);
+    
+    i2s_channel_enable(tx_chan);
+    
+    streaming_active = true;
+    ESP_LOGI(TAG, "Streaming playback started @ %lu Hz", sample_rate);
+    
+    return true;
+}
+
+void audio_write_streaming(const uint8_t *data, size_t size)
+{
+    if (!streaming_active || !data || size == 0) return;
+    
+    // Convert mono to stereo and apply volume
+    size_t samples = size / 2;
+    int16_t *mono = (int16_t *)data;
+    int16_t stereo[STREAM_WRITE_CHUNK * 2];  // Max chunk size
+    
+    size_t offset = 0;
+    while (offset < samples) {
+        size_t chunk = (samples - offset);
+        if (chunk > STREAM_WRITE_CHUNK) chunk = STREAM_WRITE_CHUNK;
+        
+        // Convert mono to stereo with volume
+        for (size_t i = 0; i < chunk; i++) {
+            int32_t sample = mono[offset + i];
+            sample = (sample * playback_volume) / 100;
+            if (sample > 32767) sample = 32767;
+            if (sample < -32768) sample = -32768;
+            stereo[i * 2] = (int16_t)sample;
+            stereo[i * 2 + 1] = (int16_t)sample;
+        }
+        
+        // Write to I2S (blocking)
+        size_t written = 0;
+        i2s_channel_write(tx_chan, stereo, chunk * 4, &written, portMAX_DELAY);
+        
+        offset += chunk;
+    }
+}
+
+void audio_stop_streaming_playback(void)
+{
+    if (!streaming_active) return;
+    
+    streaming_active = false;
+    i2s_channel_disable(tx_chan);
+    ESP_LOGI(TAG, "Streaming playback stopped");
+}
+
+void audio_play_pcm(const uint8_t *data, size_t size, uint32_t sample_rate)
+{
+    // Copy data since audio_play with take_ownership=false still expects persistent buffer
+    uint8_t *copy = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!copy) {
+        ESP_LOGE(TAG, "Failed to allocate buffer for audio_play_pcm");
+        return;
+    }
+    memcpy(copy, data, size);
+    audio_play(copy, size, sample_rate, true);  // Let audio module free it
+}

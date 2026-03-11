@@ -17,7 +17,13 @@
 #ifndef NOTIFICATION_H
 #define NOTIFICATION_H
 
-#include <Arduino.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Maximum length of notification text
 #define NOTIFICATION_MAX_LEN 1024
@@ -30,19 +36,19 @@ typedef enum {
     NOTIFY_NONE,
     NOTIFY_TEXT,    // Text to be spoken via TTS
     NOTIFY_AUDIO    // Pre-loaded audio to play directly
-} NotifyType;
+} notify_type_t;
 
 // Initialize notification system
-void notification_init();
+void notification_init(void);
 
-// Queue a text notification (device will do TTS)
+// Queue a text notification (device will do TTS on acknowledge)
 // Returns true if queued successfully
 bool notification_queue(const char* text);
 
-// Queue a text notification with silent option
+// Queue a text notification with silent option (no attention chime)
 bool notification_queue_ex(const char* text, bool silent);
 
-// Queue an audio notification (pre-loaded audio to play)
+// Queue an audio notification (pre-loaded audio to play on acknowledge)
 // Audio is copied to internal buffer. Sample rate for playback.
 // Returns true if queued successfully
 bool notification_queue_audio(const uint8_t* audio_data, size_t audio_size, 
@@ -53,20 +59,19 @@ bool notification_queue_audio_ex(const uint8_t* audio_data, size_t audio_size,
                                   uint32_t sample_rate, const char* display_text, bool silent);
 
 // Check if current notification is silent (no attention chime)
-bool notification_is_silent();
+bool notification_is_silent(void);
 
 // Free the audio buffer after playback is complete
-// Call this after playing audio notification
-void notification_free_audio();
+void notification_free_audio(void);
 
 // Check if a notification is pending
-bool notification_pending();
+bool notification_pending(void);
 
 // Get the notification type
-NotifyType notification_get_type();
+notify_type_t notification_get_type(void);
 
 // Get the pending notification text (for display or TTS)
-const char* notification_get_text();
+const char* notification_get_text(void);
 
 // Get the pending notification audio (for NOTIFY_AUDIO type)
 // Returns NULL if no audio notification pending
@@ -75,16 +80,20 @@ const uint8_t* notification_get_audio(size_t* out_size, uint32_t* out_sample_rat
 // Acknowledge and clear the notification (called when user taps)
 // For NOTIFY_TEXT: returns the text (caller should speak it)
 // For NOTIFY_AUDIO: returns NULL (caller should use notification_get_audio first)
-const char* notification_acknowledge();
+const char* notification_acknowledge(void);
 
 // Cancel current notification without playing
-void notification_cancel();
+void notification_cancel(void);
 
 // Play attention sound once
-void notification_play_attention();
+void notification_play_attention(void);
 
 // Update notification state (call in main loop)
-// Handles periodic sound playback
-void notification_update();
+// Handles periodic sound playback - returns true if attention sound played
+bool notification_update(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // NOTIFICATION_H

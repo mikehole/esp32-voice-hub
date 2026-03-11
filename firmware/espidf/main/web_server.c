@@ -21,6 +21,7 @@
 #include "audio.h"
 #include "display.h"
 #include "wakeword.h"
+#include "notification.h"
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -277,30 +278,103 @@ static esp_err_t brightness_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// POST /api/notify - Show notification and speak text via TTS
+// POST /api/notify - Queue notification (user must tap to acknowledge and hear it)
+// Query params: silent=1 to skip attention chime
 static esp_err_t notify_handler(httpd_req_t *req)
 {
-    // Read message from body (max 256 chars)
-    char buf[256] = {0};
+    // Check for silent param
+    bool silent = false;
+    char query[64] = {0};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char param[8];
+        if (httpd_query_key_value(query, "silent", param, sizeof(param)) == ESP_OK) {
+            silent = (strcmp(param, "1") == 0 || strcmp(param, "true") == 0);
+        }
+    }
+    
+    // Read message from body (max 1024 chars to match notification buffer)
+    char buf[1024] = {0};
     int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
     if (received > 0) {
         buf[received] = '\0';
-        ESP_LOGI(TAG, "Notify: %s", buf);
+        ESP_LOGI(TAG, "Notify (silent=%d): %s", silent, buf);
         
-        // Send to OpenClaw for TTS
-        if (voice_client_speak(buf)) {
-            httpd_resp_send(req, "Speaking...", -1);
+        // Queue the notification - will show avatar and play attention sound
+        if (notification_queue_ex(buf, silent)) {
+            // Set display to notification state (shows notification avatar + purple ring)
+            display_set_state(DISPLAY_STATE_NOTIFICATION);
+            httpd_resp_send(req, "Notification queued - tap to acknowledge", -1);
         } else {
-            // Fallback: just flash the display if not connected
-            display_set_state(DISPLAY_STATE_SPEAKING);
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            display_set_state(DISPLAY_STATE_IDLE);
-            httpd_resp_send(req, "Not connected to voice server", -1);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to queue notification");
         }
     } else {
-        httpd_resp_send(req, "No message", -1);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No message body");
     }
     
+    return ESP_OK;
+}
+
+// POST /api/notify-audio - Queue pre-rendered audio notification
+// Query params: rate=<sample_rate> (default 24000), silent=1
+// Body: raw PCM audio data (16-bit signed mono)
+static esp_err_t notify_audio_handler(httpd_req_t *req)
+{
+    // Parse query params
+    uint32_t sample_rate = 24000;
+    bool silent = false;
+    char query[64] = {0};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char param[16];
+        if (httpd_query_key_value(query, "rate", param, sizeof(param)) == ESP_OK) {
+            sample_rate = atoi(param);
+            if (sample_rate < 8000 || sample_rate > 48000) sample_rate = 24000;
+        }
+        if (httpd_query_key_value(query, "silent", param, sizeof(param)) == ESP_OK) {
+            silent = (strcmp(param, "1") == 0 || strcmp(param, "true") == 0);
+        }
+    }
+    
+    // Check content length
+    size_t content_len = req->content_len;
+    if (content_len == 0 || content_len > NOTIFICATION_MAX_AUDIO_SIZE) {
+        ESP_LOGW(TAG, "Invalid audio size: %u", content_len);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid audio size (max 512KB)");
+        return ESP_OK;
+    }
+    
+    // Allocate buffer in PSRAM
+    uint8_t *audio_buf = heap_caps_malloc(content_len, MALLOC_CAP_SPIRAM);
+    if (!audio_buf) {
+        ESP_LOGE(TAG, "Failed to allocate audio buffer");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_OK;
+    }
+    
+    // Read audio data
+    size_t received = 0;
+    while (received < content_len) {
+        int ret = httpd_req_recv(req, (char*)(audio_buf + received), content_len - received);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            ESP_LOGE(TAG, "Failed to receive audio data");
+            heap_caps_free(audio_buf);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
+            return ESP_OK;
+        }
+        received += ret;
+    }
+    
+    ESP_LOGI(TAG, "Received %u bytes audio @ %u Hz (silent=%d)", received, sample_rate, silent);
+    
+    // Queue the notification (copies the data)
+    if (notification_queue_audio_ex(audio_buf, received, sample_rate, NULL, silent)) {
+        display_set_state(DISPLAY_STATE_NOTIFICATION);
+        httpd_resp_send(req, "Audio notification queued - tap to acknowledge", -1);
+    } else {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to queue notification");
+    }
+    
+    heap_caps_free(audio_buf);
     return ESP_OK;
 }
 
@@ -844,6 +918,13 @@ esp_err_t web_server_start(void)
         .handler = notify_handler
     };
     httpd_register_uri_handler(server, &notify_uri);
+    
+    httpd_uri_t notify_audio_uri = {
+        .uri = "/api/notify-audio",
+        .method = HTTP_POST,
+        .handler = notify_audio_handler
+    };
+    httpd_register_uri_handler(server, &notify_audio_uri);
     
     httpd_uri_t restart_uri = {
         .uri = "/api/restart",

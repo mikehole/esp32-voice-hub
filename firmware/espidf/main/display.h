@@ -10,6 +10,7 @@ typedef enum {
     DISPLAY_STATE_LISTENING,
     DISPLAY_STATE_THINKING,
     DISPLAY_STATE_SPEAKING,
+    DISPLAY_STATE_NOTIFICATION,  // Notification pending - waiting for user tap
     DISPLAY_STATE_ERROR
 } display_state_t;
 
