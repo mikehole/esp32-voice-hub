@@ -244,8 +244,10 @@ This is perfect for integrating with OpenClaw, Home Assistant, or any automation
 - [x] **Rotary encoder** — Smooth navigation with accumulate+poll pattern
 - [x] **OTA updates** — Over-the-air firmware updates via HTTP
 - [x] **Screenshot API** — Capture display for debugging
+- [x] **GitHub Actions CI** — Automated firmware builds on push
 
 ### Planned 🚧
+- [ ] **Web flasher** — Browser-based flashing via ESP Web Tools (no PlatformIO required)
 - [ ] **Bluetooth HID** — Device pairs with PC as a keyboard/media controller
 - [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand, screen share, leave (BT HID)
 - [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys). Encoder = volume knob!
