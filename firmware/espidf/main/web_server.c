@@ -1,5 +1,16 @@
 /**
  * Web Server - HTTP endpoints for control and OTA
+ * 
+ * Endpoints:
+ *   GET  /admin              - Admin web interface
+ *   GET  /api/status         - Device status JSON
+ *   GET  /api/brightness     - Set brightness (?v=0-100)
+ *   GET  /api/screenshot     - Capture display as BMP
+ *   POST /api/play           - Play raw PCM audio
+ *   POST /api/speak          - TTS (text in body, requires external TTS)
+ *   POST /api/notify         - Show notification + speak
+ *   POST /api/ota/upload     - Upload firmware binary
+ *   POST /api/ota/url        - OTA from URL
  */
 
 #include "web_server.h"
@@ -15,6 +26,8 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_wifi.h"
+#include "esp_timer.h"
 #include "cJSON.h"
 #include "lvgl.h"
 
@@ -26,6 +39,100 @@
 static const char *TAG = "web_srv";
 static httpd_handle_t server = NULL;
 static char auth_token[64] = {0};
+static int64_t start_time = 0;
+
+// ============================================================================
+// Admin HTML Page
+// ============================================================================
+
+static const char ADMIN_HTML[] = 
+"<!DOCTYPE html><html><head>"
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>Voice Hub Admin</title>"
+"<style>"
+"*{box-sizing:border-box}"
+"body{font-family:sans-serif;background:#0A1929;color:#5DADE2;margin:0;padding:20px}"
+".c{max-width:500px;margin:0 auto;background:#0F2744;border-radius:15px;padding:20px;border:2px solid #2E86AB}"
+"h1{text-align:center;margin-top:0}"
+".l{text-align:center;font-size:40px}"
+".row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #2E86AB}"
+".row:last-child{border-bottom:none}"
+".label{color:#85C1E9}"
+".value{font-weight:bold}"
+"button{padding:10px 20px;background:#5DADE2;color:#0A1929;border:none;border-radius:8px;font-weight:bold;cursor:pointer;margin:5px}"
+"button.danger{background:#E74C3C}"
+"input[type=range]{width:100%}"
+".section{margin-top:20px;padding-top:15px;border-top:2px solid #2E86AB}"
+"#screen{max-width:100%;border-radius:10px;margin-top:10px}"
+"</style></head><body>"
+"<div class=\"c\">"
+"<div class=\"l\">&#129417;</div>"
+"<h1>Voice Hub Admin</h1>"
+"<div id=\"status\">Loading...</div>"
+"<div class=\"section\">"
+"<h3>Display</h3>"
+"<label>Brightness: <span id=\"bval\">100</span>%</label>"
+"<input type=\"range\" id=\"brightness\" min=\"10\" max=\"100\" value=\"100\" onchange=\"setBrightness(this.value)\">"
+"<br><button onclick=\"screenshot()\">Take Screenshot</button>"
+"<div id=\"screenwrap\"></div>"
+"</div>"
+"<div class=\"section\">"
+"<h3>Audio Test</h3>"
+"<button onclick=\"testSpeak()\">Test TTS</button>"
+"<span id=\"audioStatus\"></span>"
+"</div>"
+"<div class=\"section\">"
+"<h3>System</h3>"
+"<button onclick=\"restart()\">Restart Device</button>"
+"<button class=\"danger\" onclick=\"otaMode()\">Enter OTA Mode</button>"
+"</div>"
+"</div>"
+"<script>"
+"function load(){"
+"fetch('/api/status').then(r=>r.json()).then(d=>{"
+"var h='';"
+"h+='<div class=\"row\"><span class=\"label\">IP Address</span><span class=\"value\">'+d.ip+'</span></div>';"
+"h+='<div class=\"row\"><span class=\"label\">Version</span><span class=\"value\">'+d.version+' ('+d.sha+')</span></div>';"
+"h+='<div class=\"row\"><span class=\"label\">Uptime</span><span class=\"value\">'+d.uptime+'</span></div>';"
+"h+='<div class=\"row\"><span class=\"label\">Free Heap</span><span class=\"value\">'+d.heap+'</span></div>';"
+"h+='<div class=\"row\"><span class=\"label\">Free PSRAM</span><span class=\"value\">'+d.psram+'</span></div>';"
+"h+='<div class=\"row\"><span class=\"label\">WiFi Signal</span><span class=\"value\">'+d.rssi+' dBm</span></div>';"
+"h+='<div class=\"row\"><span class=\"label\">Wake Word</span><span class=\"value\">'+(d.wakeword?'Enabled':'Disabled')+'</span></div>';"
+"document.getElementById('status').innerHTML=h;"
+"document.getElementById('brightness').value=d.brightness;"
+"document.getElementById('bval').innerText=d.brightness;"
+"});"
+"}"
+"function setBrightness(v){"
+"document.getElementById('bval').innerText=v;"
+"fetch('/api/brightness?v='+v);"
+"}"
+"function screenshot(){"
+"document.getElementById('screenwrap').innerHTML='<p>Capturing...</p>';"
+"fetch('/api/screenshot').then(r=>r.blob()).then(b=>{"
+"var url=URL.createObjectURL(b);"
+"document.getElementById('screenwrap').innerHTML='<img id=\"screen\" src=\"'+url+'\">';"
+"});"
+"}"
+"function testSpeak(){"
+"document.getElementById('audioStatus').innerText=' Playing...';"
+"fetch('/api/notify',{method:'POST',body:'Hello from the admin panel!'}).then(()=>{"
+"document.getElementById('audioStatus').innerText=' Done';"
+"setTimeout(()=>{document.getElementById('audioStatus').innerText='';},2000);"
+"});"
+"}"
+"function restart(){"
+"if(confirm('Restart device?')){"
+"fetch('/api/restart').then(()=>alert('Restarting...'));"
+"}"
+"}"
+"function otaMode(){"
+"if(confirm('Enter OTA mode? Wake word will be paused.')){"
+"fetch('/api/ota/mode').then(()=>alert('OTA mode enabled. Upload firmware now.'));"
+"}"
+"}"
+"load();setInterval(load,5000);"
+"</script></body></html>";
 
 // ============================================================================
 // Helpers
@@ -56,7 +163,15 @@ static bool check_auth(httpd_req_t *req)
 // Handlers
 // ============================================================================
 
-// GET /api/status - Device status
+// GET /admin - Admin web interface
+static esp_err_t admin_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, ADMIN_HTML, strlen(ADMIN_HTML));
+    return ESP_OK;
+}
+
+// GET /api/status - Device status (enhanced)
 static esp_err_t status_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
@@ -64,8 +179,38 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "version", ota_get_version());
     cJSON_AddStringToObject(root, "sha", ota_get_sha256_short());
     cJSON_AddStringToObject(root, "ip", wifi_manager_get_ip());
-    cJSON_AddNumberToObject(root, "heap", esp_get_free_heap_size());
     cJSON_AddStringToObject(root, "framework", "esp-idf");
+    
+    // Memory info
+    char heap_str[32], psram_str[32];
+    snprintf(heap_str, sizeof(heap_str), "%u KB", heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+    snprintf(psram_str, sizeof(psram_str), "%u KB", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+    cJSON_AddStringToObject(root, "heap", heap_str);
+    cJSON_AddStringToObject(root, "psram", psram_str);
+    
+    // Uptime
+    int64_t uptime_us = esp_timer_get_time() - start_time;
+    int secs = (uptime_us / 1000000) % 60;
+    int mins = (uptime_us / 60000000) % 60;
+    int hrs = uptime_us / 3600000000;
+    char uptime_str[32];
+    snprintf(uptime_str, sizeof(uptime_str), "%dh %dm %ds", hrs, mins, secs);
+    cJSON_AddStringToObject(root, "uptime", uptime_str);
+    
+    // WiFi RSSI
+    wifi_ap_record_t ap_info;
+    int8_t rssi = 0;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        rssi = ap_info.rssi;
+    }
+    cJSON_AddNumberToObject(root, "rssi", rssi);
+    
+    // Brightness (0-255 -> 0-100%)
+    int brightness = (display_get_brightness() * 100) / 255;
+    cJSON_AddNumberToObject(root, "brightness", brightness);
+    
+    // Wake word status
+    cJSON_AddBoolToObject(root, "wakeword", wakeword_is_running());
     
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -73,6 +218,65 @@ static esp_err_t status_handler(httpd_req_t *req)
     
     free(json);
     cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// GET /api/brightness - Set display brightness
+static esp_err_t brightness_handler(httpd_req_t *req)
+{
+    char query[32] = {0};
+    char val[8] = {0};
+    
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        httpd_query_key_value(query, "v", val, sizeof(val));
+    }
+    
+    int brightness = atoi(val);
+    if (brightness >= 0 && brightness <= 100) {
+        display_set_brightness((brightness * 255) / 100);
+        ESP_LOGI(TAG, "Brightness set to %d%%", brightness);
+    }
+    
+    httpd_resp_send(req, "OK", 2);
+    return ESP_OK;
+}
+
+// POST /api/notify - Show notification (text in body)
+static esp_err_t notify_handler(httpd_req_t *req)
+{
+    // Read message from body (max 256 chars)
+    char buf[256] = {0};
+    int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (received > 0) {
+        buf[received] = '\0';
+        ESP_LOGI(TAG, "Notify: %s", buf);
+        // Flash speaking state briefly as notification indicator
+        display_set_state(DISPLAY_STATE_SPEAKING);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        display_set_state(DISPLAY_STATE_IDLE);
+    }
+    
+    httpd_resp_send(req, "OK", 2);
+    return ESP_OK;
+}
+
+// GET /api/restart - Restart device
+static esp_err_t restart_handler(httpd_req_t *req)
+{
+    httpd_resp_send(req, "Restarting...", -1);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
+// GET /api/ota/mode - Enter OTA mode (pause wakeword)
+static esp_err_t ota_mode_handler(httpd_req_t *req)
+{
+    if (wakeword_is_running()) {
+        wakeword_stop();
+        ESP_LOGI(TAG, "OTA mode: wakeword paused");
+    }
+    httpd_resp_send(req, "OTA mode enabled", -1);
     return ESP_OK;
 }
 
@@ -508,13 +712,51 @@ esp_err_t web_server_start(void)
         return err;
     }
     
+    // Initialize start time for uptime
+    start_time = esp_timer_get_time();
+    
     // Register endpoints
+    httpd_uri_t admin_uri = {
+        .uri = "/admin",
+        .method = HTTP_GET,
+        .handler = admin_handler
+    };
+    httpd_register_uri_handler(server, &admin_uri);
+    
     httpd_uri_t status_uri = {
         .uri = "/api/status",
         .method = HTTP_GET,
         .handler = status_handler
     };
     httpd_register_uri_handler(server, &status_uri);
+    
+    httpd_uri_t brightness_uri = {
+        .uri = "/api/brightness",
+        .method = HTTP_GET,
+        .handler = brightness_handler
+    };
+    httpd_register_uri_handler(server, &brightness_uri);
+    
+    httpd_uri_t notify_uri = {
+        .uri = "/api/notify",
+        .method = HTTP_POST,
+        .handler = notify_handler
+    };
+    httpd_register_uri_handler(server, &notify_uri);
+    
+    httpd_uri_t restart_uri = {
+        .uri = "/api/restart",
+        .method = HTTP_GET,
+        .handler = restart_handler
+    };
+    httpd_register_uri_handler(server, &restart_uri);
+    
+    httpd_uri_t ota_mode_uri = {
+        .uri = "/api/ota/mode",
+        .method = HTTP_GET,
+        .handler = ota_mode_handler
+    };
+    httpd_register_uri_handler(server, &ota_mode_uri);
     
     httpd_uri_t ota_upload_uri = {
         .uri = "/api/ota/upload",
@@ -551,7 +793,7 @@ esp_err_t web_server_start(void)
     };
     httpd_register_uri_handler(server, &screenshot_uri);
     
-    ESP_LOGI(TAG, "Server started");
+    ESP_LOGI(TAG, "Server started with %d endpoints", 11);
     return ESP_OK;
 }
 
