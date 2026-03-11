@@ -22,6 +22,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Fix git ownership
+        run: git config --global --add safe.directory /__w/esp32-voice-hub/esp32-voice-hub
+
       - name: Build firmware
         working-directory: firmware/espidf
         run: |
