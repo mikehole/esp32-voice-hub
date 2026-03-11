@@ -6,11 +6,14 @@
 #include "avatar_images.h"
 #include "avatar_menu_images.h"
 #include "display.h"
+#include "update_checker.h"
+#include "wakeword.h"
 
 #include <string.h>
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "lvgl.h"
@@ -63,6 +66,17 @@ static menu_id_t current_menu = MENU_MAIN;
 static const char** current_labels = main_menu_labels;
 static bool ota_mode = false;
 static bool wakeword_enabled = true;
+
+// OTA update state
+typedef enum {
+    OTA_STATE_IDLE,
+    OTA_STATE_CHECKING,
+    OTA_STATE_UPDATE_AVAILABLE,
+    OTA_STATE_NO_UPDATE,
+    OTA_STATE_INSTALLING,
+} ota_state_t;
+
+static ota_state_t ota_state = OTA_STATE_IDLE;
 
 // Adjustment mode state
 typedef enum {
@@ -181,7 +195,15 @@ static void update_center_content(void) {
         const char* text = "";
         switch (selected_wedge) {
             case 0: text = "Tap to\ngo back"; break;
-            case 1: text = "Tap to\ndownload"; break;
+            case 1:  // OTA - show state
+                switch (ota_state) {
+                    case OTA_STATE_CHECKING: text = "Checking\n..."; break;
+                    case OTA_STATE_UPDATE_AVAILABLE: text = "Update\navailable!"; break;
+                    case OTA_STATE_NO_UPDATE: text = "Up to\ndate"; break;
+                    case OTA_STATE_INSTALLING: text = "Installing\n..."; break;
+                    default: text = "Check for\nupdates"; break;
+                }
+                break;
             case 2: text = wakeword_enabled ? "Wake Word\nON" : "Wake Word\nOFF"; break;
             case 3: text = "Adjust\nbrightness"; break;
             case 4: text = "Adjust\nvolume"; break;
@@ -435,10 +457,21 @@ wedge_action_t wedge_ui_center_tap(void) {
             case 0:  // Back
                 switch_menu(MENU_MAIN);
                 return ACTION_BACK;
-            case 1:  // OTA Mode
-                ota_mode = true;
-                ESP_LOGI(TAG, "OTA Mode enabled - wakeword paused");
-                return ACTION_OTA_MODE;
+            case 1:  // OTA - Check/Install updates
+                if (ota_state == OTA_STATE_UPDATE_AVAILABLE) {
+                    // Install the update
+                    ota_state = OTA_STATE_INSTALLING;
+                    update_center_content();
+                    ESP_LOGI(TAG, "Installing OTA update...");
+                    return ACTION_OTA_INSTALL;
+                } else if (ota_state == OTA_STATE_IDLE || ota_state == OTA_STATE_NO_UPDATE) {
+                    // Check for updates
+                    ota_state = OTA_STATE_CHECKING;
+                    update_center_content();
+                    ESP_LOGI(TAG, "Checking for updates...");
+                    return ACTION_OTA_CHECK;
+                }
+                return ACTION_NONE;
             case 2:  // Toggle Wake Word
                 wakeword_enabled = !wakeword_enabled;
                 ESP_LOGI(TAG, "Wake word: %s", wakeword_enabled ? "enabled" : "disabled");
@@ -473,6 +506,23 @@ bool wedge_ui_is_ota_mode(void) {
 void wedge_ui_exit_ota_mode(void) {
     ota_mode = false;
     ESP_LOGI(TAG, "OTA Mode disabled");
+}
+
+void wedge_ui_set_update_available(bool available) {
+    ota_state = available ? OTA_STATE_UPDATE_AVAILABLE : OTA_STATE_NO_UPDATE;
+    if (display_lock(50)) {
+        update_center_content();
+        display_unlock();
+    }
+    ESP_LOGI(TAG, "Update available: %s", available ? "yes" : "no");
+}
+
+void wedge_ui_reset_ota_state(void) {
+    ota_state = OTA_STATE_IDLE;
+    if (display_lock(50)) {
+        update_center_content();
+        display_unlock();
+    }
 }
 
 bool wedge_ui_is_adjusting(void) {

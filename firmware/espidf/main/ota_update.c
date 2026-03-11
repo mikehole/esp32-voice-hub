@@ -10,6 +10,7 @@
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_app_format.h"
+#include "esp_crt_bundle.h"
 
 static const char *TAG = "ota";
 
@@ -65,7 +66,8 @@ esp_err_t ota_update_from_url(const char* url)
     
     esp_http_client_config_t config = {
         .url = url,
-        .timeout_ms = 30000,
+        .timeout_ms = 60000,
+        .crt_bundle_attach = esp_crt_bundle_attach,  // Use certificate bundle for HTTPS
     };
     
     esp_https_ota_config_t ota_config = {

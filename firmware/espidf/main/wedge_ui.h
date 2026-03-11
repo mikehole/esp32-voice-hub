@@ -34,6 +34,8 @@ typedef enum {
     ACTION_VOICE_START,      // Start voice recording
     ACTION_SUBMENU,          // Entered a submenu
     ACTION_OTA_MODE,         // Enter OTA mode (pause wakeword)
+    ACTION_OTA_CHECK,        // Check for updates
+    ACTION_OTA_INSTALL,      // Install available update
     ACTION_TOGGLE_WAKEWORD,  // Toggle wake word on/off
     ACTION_BACK,             // Go back to parent menu
 } wedge_action_t;
@@ -64,6 +66,12 @@ bool wedge_ui_is_ota_mode(void);
 
 // Exit OTA mode (call after OTA complete or timeout)
 void wedge_ui_exit_ota_mode(void);
+
+// Set update availability (called after update check completes)
+void wedge_ui_set_update_available(bool available);
+
+// Reset OTA state to idle
+void wedge_ui_reset_ota_state(void);
 
 // Adjustment mode (for brightness, volume, etc.)
 bool wedge_ui_is_adjusting(void);

@@ -63,11 +63,13 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          name: Latest Build
+          name: Latest Build (${{ steps.version.outputs.sha }})
           prerelease: true
           files: release/*
           body: |
             Latest firmware build from main branch.
+            
+            **Commit:** ${{ steps.version.outputs.sha }}
             
             **OTA Update:**
             ```bash

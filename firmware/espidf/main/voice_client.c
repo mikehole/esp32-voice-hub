@@ -14,6 +14,7 @@
 #include "wakeword.h"
 #include "wedge_ui.h"
 #include "encoder.h"
+#include "update_checker.h"
 
 #include <string.h>
 #include <math.h>
@@ -294,6 +295,21 @@ static void stop_recording(void)
     stop_requested = true;
 }
 
+// Update check callback
+static void on_update_check_complete(bool available, const char* version)
+{
+    ESP_LOGI(TAG, "Update check complete: %s (version: %s)", 
+             available ? "update available" : "up to date",
+             version ? version : "unknown");
+    
+    wedge_ui_set_update_available(available);
+    
+    // Resume wakeword if it was running
+    if (wakeword_mode && !wakeword_is_running()) {
+        wakeword_start();
+    }
+}
+
 // Wake word callback
 static void on_wakeword_detected(void)
 {
@@ -411,6 +427,22 @@ static void touch_task(void *arg)
                             wakeword_start();
                             wakeword_mode = true;
                         }
+                        break;
+                    case ACTION_OTA_CHECK:
+                        // Check for updates in background
+                        ESP_LOGI(TAG, "Checking for OTA updates...");
+                        if (wakeword_mode) {
+                            wakeword_stop();  // Pause during check
+                        }
+                        update_checker_check(on_update_check_complete);
+                        break;
+                    case ACTION_OTA_INSTALL:
+                        // Install the update
+                        ESP_LOGI(TAG, "Installing OTA update...");
+                        if (wakeword_mode) {
+                            wakeword_stop();
+                        }
+                        update_checker_install();  // Will restart on success
                         break;
                     default:
                         // ACTION_NONE, ACTION_SUBMENU, ACTION_BACK - UI handled it
