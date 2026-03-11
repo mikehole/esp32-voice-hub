@@ -4,12 +4,15 @@
 
 #include "wedge_ui.h"
 #include "avatar_images.h"
+#include "avatar_menu_images.h"
+#include "display.h"
 
 #include <string.h>
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "lvgl.h"
 
 static const char *TAG = "wedge_ui";
@@ -31,17 +34,46 @@ static const char *TAG = "wedge_ui";
 #define COLOR_BORDER    lv_color_hex(0x533483)
 #define COLOR_TEXT      lv_color_hex(0x5DADE2)  // Cyan text
 
-// Wedge labels (matching PlatformIO version)
-static const char* wedge_labels[] = {
-    "Minerva",   // 0: Top
+// Main menu labels
+static const char* main_menu_labels[] = {
+    "Minerva",   // 0: Top - voice assistant
     "Music",     // 1
     "Home",      // 2
     "Weather",   // 3
     "News",      // 4
     "Timer",     // 5
-    "Lights",    // 6
-    "Settings"   // 7
+    "Zoom",      // 6
+    "Settings"   // 7 - opens settings submenu
 };
+
+// Settings submenu labels
+static const char* settings_menu_labels[] = {
+    "< Back",       // 0: Return to main menu
+    "OTA",          // 1: Pause wakeword for OTA
+    "Wake",         // 2: Toggle wake word on/off
+    "Bright",       // 3: Adjust brightness
+    "Volume",       // 4: Adjust volume
+    "WiFi",         // 5: WiFi settings
+    "About",        // 6: Device info
+    "Restart"       // 7: Reboot device
+};
+
+// Current menu state
+static menu_id_t current_menu = MENU_MAIN;
+static const char** current_labels = main_menu_labels;
+static bool ota_mode = false;
+static bool wakeword_enabled = true;
+
+// Adjustment mode state
+typedef enum {
+    ADJUST_NONE = 0,
+    ADJUST_BRIGHTNESS,
+    ADJUST_VOLUME,
+} adjust_mode_t;
+
+static adjust_mode_t adjust_mode = ADJUST_NONE;
+static int adjust_value = 50;  // Current value being adjusted (0-100)
+static lv_obj_t* adjust_arc = NULL;  // Arc indicator for adjustment
 
 // State
 static int selected_wedge = 0;
@@ -54,6 +86,7 @@ static lv_meter_scale_t* highlight_scale = NULL;
 static lv_meter_indicator_t* highlight_arc = NULL;
 static lv_obj_t* center_obj = NULL;
 static lv_obj_t* avatar_img = NULL;
+static lv_obj_t* center_text = NULL;  // Text shown in settings mode
 static lv_obj_t* wedge_labels_obj[8] = {0};
 
 // Avatar image descriptors
@@ -61,6 +94,9 @@ static lv_img_dsc_t avatar_idle_dsc;
 static lv_img_dsc_t avatar_listening_dsc;
 static lv_img_dsc_t avatar_thinking_dsc;
 static lv_img_dsc_t avatar_speaking_dsc;
+
+// Menu avatars for each wedge
+static lv_img_dsc_t avatar_menu_dsc[7];  // 7 menu avatars (wedges 1-7)
 
 // External LVGL mutex (from display.c)
 extern SemaphoreHandle_t lvgl_mutex;
@@ -93,7 +129,68 @@ static void init_avatar_descriptors(void) {
     avatar_speaking_dsc.header.h = AVATAR_SIZE;
     avatar_speaking_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
     avatar_speaking_dsc.data_size = AVATAR_SIZE * AVATAR_SIZE * 2;
-    avatar_speaking_dsc.data = (const uint8_t*)avatar_speaking_1;  // Use speaking_1
+    avatar_speaking_dsc.data = (const uint8_t*)avatar_speaking_1;
+    
+    // Initialize menu avatars (one per wedge 1-7)
+    const uint16_t* menu_images[] = {
+        avatar_menu_music,     // wedge 1
+        avatar_menu_home,      // wedge 2
+        avatar_menu_weather,   // wedge 3
+        avatar_menu_news,      // wedge 4
+        avatar_menu_timer,     // wedge 5
+        avatar_menu_zoom,      // wedge 6 (Lights in labels)
+        avatar_menu_settings,  // wedge 7
+    };
+    
+    for (int i = 0; i < 7; i++) {
+        avatar_menu_dsc[i].header.always_zero = 0;
+        avatar_menu_dsc[i].header.w = AVATAR_SIZE;
+        avatar_menu_dsc[i].header.h = AVATAR_SIZE;
+        avatar_menu_dsc[i].header.cf = LV_IMG_CF_TRUE_COLOR;
+        avatar_menu_dsc[i].data_size = AVATAR_SIZE * AVATAR_SIZE * 2;
+        avatar_menu_dsc[i].data = (const uint8_t*)menu_images[i];
+    }
+}
+
+// Forward declarations
+static void update_center_content(void);
+static void enter_adjustment_mode(adjust_mode_t mode, int initial_value);
+static void exit_adjustment_mode(void);
+
+// Update center content based on menu and selection
+static void update_center_content(void) {
+    if (!center_text || !avatar_img) return;
+    
+    if (current_menu == MENU_MAIN) {
+        // Main menu - show avatar, hide text
+        lv_obj_clear_flag(avatar_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(center_text, LV_OBJ_FLAG_HIDDEN);
+        
+        // Update avatar based on selected wedge
+        if (selected_wedge == 0) {
+            lv_img_set_src(avatar_img, &avatar_idle_dsc);
+        } else {
+            lv_img_set_src(avatar_img, &avatar_menu_dsc[selected_wedge - 1]);
+        }
+    } else if (current_menu == MENU_SETTINGS) {
+        // Settings menu - show text, hide avatar
+        lv_obj_add_flag(avatar_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(center_text, LV_OBJ_FLAG_HIDDEN);
+        
+        // Set text based on selected setting
+        const char* text = "";
+        switch (selected_wedge) {
+            case 0: text = "Tap to\ngo back"; break;
+            case 1: text = "Tap to\ndownload"; break;
+            case 2: text = wakeword_enabled ? "Wake Word\nON" : "Wake Word\nOFF"; break;
+            case 3: text = "Adjust\nbrightness"; break;
+            case 4: text = "Adjust\nvolume"; break;
+            case 5: text = "WiFi\nsetup"; break;
+            case 6: text = "Device\ninfo"; break;
+            case 7: text = "Tap to\nrestart"; break;
+        }
+        lv_label_set_text(center_text, text);
+    }
 }
 
 static void update_highlight(void) {
@@ -111,6 +208,9 @@ static void update_highlight(void) {
             lv_obj_set_style_text_color(wedge_labels_obj[i], color, 0);
         }
     }
+    
+    // Update center content
+    update_center_content();
 }
 
 bool wedge_ui_init(void) {
@@ -174,7 +274,7 @@ bool wedge_ui_init(void) {
         int label_y = CENTER_Y + (int)(sin(angle_rad) * label_radius) - 8;
         
         lv_obj_t* label = lv_label_create(screen);
-        lv_label_set_text(label, wedge_labels[i]);
+        lv_label_set_text(label, current_labels[i]);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(label, COLOR_TEXT, 0);  // Cyan by default
         lv_obj_set_pos(label, label_x, label_y);
@@ -196,6 +296,31 @@ bool wedge_ui_init(void) {
     avatar_img = lv_img_create(center_obj);
     lv_img_set_src(avatar_img, &avatar_idle_dsc);
     lv_obj_center(avatar_img);
+    
+    // Center text (hidden by default, shown in settings mode)
+    center_text = lv_label_create(center_obj);
+    lv_label_set_text(center_text, "");
+    lv_obj_set_style_text_font(center_text, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(center_text, COLOR_TEXT, 0);
+    lv_obj_set_style_text_align(center_text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(center_text, AVATAR_SIZE - 20);
+    lv_obj_center(center_text);
+    lv_obj_add_flag(center_text, LV_OBJ_FLAG_HIDDEN);
+    
+    // Adjustment arc (hidden by default, shown in adjustment mode)
+    adjust_arc = lv_arc_create(center_obj);
+    lv_obj_set_size(adjust_arc, AVATAR_SIZE - 10, AVATAR_SIZE - 10);
+    lv_obj_center(adjust_arc);
+    lv_arc_set_rotation(adjust_arc, 135);  // Start from bottom-left
+    lv_arc_set_bg_angles(adjust_arc, 0, 270);  // 270 degree sweep
+    lv_arc_set_value(adjust_arc, 50);
+    lv_obj_set_style_arc_color(adjust_arc, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(adjust_arc, COLOR_SELECTED, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(adjust_arc, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(adjust_arc, 8, LV_PART_INDICATOR);
+    lv_obj_remove_style(adjust_arc, NULL, LV_PART_KNOB);  // No knob
+    lv_obj_clear_flag(adjust_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(adjust_arc, LV_OBJ_FLAG_HIDDEN);
     
     ui_initialized = true;
     update_highlight();
@@ -235,7 +360,11 @@ void wedge_ui_set_selection(int wedge) {
     
     selected_wedge = wedge;
     if (ui_initialized) {
-        update_highlight();
+        // LVGL operations must be protected - may be called from encoder_task!
+        if (display_lock(50)) {
+            update_highlight();  // This now also updates center content
+            display_unlock();
+        }
     }
 }
 
@@ -246,4 +375,167 @@ int wedge_ui_get_selection(void) {
 void wedge_ui_rotate(int delta) {
     int new_wedge = (selected_wedge + delta + 8) % 8;
     wedge_ui_set_selection(new_wedge);
+}
+
+// Update all wedge labels for current menu
+static void update_all_labels(void) {
+    for (int i = 0; i < 8; i++) {
+        if (wedge_labels_obj[i]) {
+            lv_label_set_text(wedge_labels_obj[i], current_labels[i]);
+        }
+    }
+    update_highlight();
+}
+
+// Switch to a different menu
+static void switch_menu(menu_id_t menu) {
+    current_menu = menu;
+    
+    switch (menu) {
+        case MENU_SETTINGS:
+            current_labels = settings_menu_labels;
+            break;
+        case MENU_MAIN:
+        default:
+            current_labels = main_menu_labels;
+            break;
+    }
+    
+    selected_wedge = 0;
+    update_all_labels();
+    update_center_content();  // Update center for new menu
+    
+    ESP_LOGI(TAG, "Switched to menu: %d", menu);
+}
+
+// Handle center tap - returns action to perform
+wedge_action_t wedge_ui_center_tap(void) {
+    ESP_LOGI(TAG, "Center tap: menu=%d, wedge=%d, adjusting=%d", current_menu, selected_wedge, adjust_mode);
+    
+    // If in adjustment mode, center tap exits and saves
+    if (adjust_mode != ADJUST_NONE) {
+        ESP_LOGI(TAG, "Exiting adjustment mode, final value=%d", adjust_value);
+        exit_adjustment_mode();
+        return ACTION_NONE;
+    }
+    
+    if (current_menu == MENU_MAIN) {
+        switch (selected_wedge) {
+            case 0:  // Minerva - start voice
+                return ACTION_VOICE_START;
+            case 7:  // Settings - open submenu
+                switch_menu(MENU_SETTINGS);
+                return ACTION_SUBMENU;
+            default:
+                // Other wedges - no action yet
+                return ACTION_NONE;
+        }
+    } else if (current_menu == MENU_SETTINGS) {
+        switch (selected_wedge) {
+            case 0:  // Back
+                switch_menu(MENU_MAIN);
+                return ACTION_BACK;
+            case 1:  // OTA Mode
+                ota_mode = true;
+                ESP_LOGI(TAG, "OTA Mode enabled - wakeword paused");
+                return ACTION_OTA_MODE;
+            case 2:  // Toggle Wake Word
+                wakeword_enabled = !wakeword_enabled;
+                ESP_LOGI(TAG, "Wake word: %s", wakeword_enabled ? "enabled" : "disabled");
+                update_center_content();  // Refresh to show new state
+                return ACTION_TOGGLE_WAKEWORD;
+            case 3:  // Brightness
+                enter_adjustment_mode(ADJUST_BRIGHTNESS, (display_get_brightness() * 100) / 255);
+                return ACTION_NONE;
+            case 4:  // Volume
+                enter_adjustment_mode(ADJUST_VOLUME, 50);
+                return ACTION_NONE;
+            case 7:  // Restart
+                ESP_LOGI(TAG, "Restart requested");
+                esp_restart();
+                return ACTION_NONE;
+            default:
+                return ACTION_NONE;
+        }
+    }
+    
+    return ACTION_NONE;
+}
+
+menu_id_t wedge_ui_get_menu(void) {
+    return current_menu;
+}
+
+bool wedge_ui_is_ota_mode(void) {
+    return ota_mode;
+}
+
+void wedge_ui_exit_ota_mode(void) {
+    ota_mode = false;
+    ESP_LOGI(TAG, "OTA Mode disabled");
+}
+
+bool wedge_ui_is_adjusting(void) {
+    return adjust_mode != ADJUST_NONE;
+}
+
+static void enter_adjustment_mode(adjust_mode_t mode, int initial_value) {
+    adjust_mode = mode;
+    adjust_value = initial_value;
+    
+    if (adjust_arc) {
+        lv_arc_set_value(adjust_arc, adjust_value);
+        lv_obj_clear_flag(adjust_arc, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Update center text to show value
+    if (center_text) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d%%", adjust_value);
+        lv_label_set_text(center_text, buf);
+    }
+    
+    ESP_LOGI(TAG, "Entered adjustment mode %d, value=%d", mode, adjust_value);
+}
+
+static void exit_adjustment_mode(void) {
+    adjust_mode = ADJUST_NONE;
+    
+    if (adjust_arc) {
+        lv_obj_add_flag(adjust_arc, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Restore center content
+    update_center_content();
+    
+    ESP_LOGI(TAG, "Exited adjustment mode");
+}
+
+void wedge_ui_adjust_value(int delta) {
+    if (adjust_mode == ADJUST_NONE) return;
+    
+    adjust_value += delta;
+    if (adjust_value < 0) adjust_value = 0;
+    if (adjust_value > 100) adjust_value = 100;
+    
+    // LVGL operations must be protected - called from encoder_task!
+    if (display_lock(50)) {
+        if (adjust_arc) {
+            lv_arc_set_value(adjust_arc, adjust_value);
+        }
+        
+        if (center_text) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d%%", adjust_value);
+            lv_label_set_text(center_text, buf);
+        }
+        display_unlock();
+    }
+    
+    // Apply the value in real-time (no LVGL lock needed - just LEDC)
+    if (adjust_mode == ADJUST_BRIGHTNESS) {
+        display_set_brightness((adjust_value * 255) / 100);
+    }
+    
+    ESP_LOGI(TAG, "Adjust value: %d%%", adjust_value);
 }
