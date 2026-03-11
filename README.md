@@ -8,7 +8,7 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 
 ## ✨ Features
 
-- 🎤 **Wake word + tap-to-talk** — Say "Hi ESP" or tap to start, Whisper STT → AI → TTS
+- 🎤 **Wake word + tap-to-talk** — Say "Computer" or tap to start, Whisper STT → AI → TTS
 - 🦀 **Expressive avatar** — Minerva shows emotions: idle, listening, thinking, speaking, connecting, notification
 - 🔔 **Push notifications** — `/api/notify` endpoint for external alerts with tap-to-acknowledge
 - 🎛️ **Radial menu navigation** — rotary encoder + touch gestures
@@ -43,7 +43,7 @@ Avatar images are embedded in firmware (~200KB for 8 images).
 | **Display Driver** | SH8601 (QSPI) via esp_lcd |
 | **Touch Driver** | CST816 (I2C) |
 | **Audio** | I2S PDM microphone + I2S DAC |
-| **Wake Word** | ESP-SR ("Hi ESP") |
+| **Wake Word** | ESP-SR ("Computer") |
 | **AI Backend** | [OpenClaw](https://github.com/openclaw/openclaw) via WebSocket |
 
 ## 🔧 Hardware
@@ -107,7 +107,7 @@ idf.py -p /dev/ttyUSB0 flash
 
 ### Using the Device
 
-1. Say **"Hi ESP"** to wake, or **tap center** to start recording
+1. Say **"Computer"** to wake, or **tap center** to start recording
 2. Speak your message (she cups her ear to listen)
 3. Release or stop speaking — silence detection ends recording
 4. Watch her **think** (contemplative pose)
@@ -192,7 +192,7 @@ Via web admin panel (`http://<device-ip>/admin`) or NVS storage:
 | WiFi SSID/Password | Network credentials |
 | OpenClaw Endpoint | WebSocket URL (e.g., `ws://192.168.1.100:8765`) |
 | Display Brightness | 0-100% with live preview |
-| Wake Word | Enable/disable "Hi ESP" detection |
+| Wake Word | Enable/disable "Computer" detection |
 
 The admin panel also shows:
 - System status (IP, uptime, heap, PSRAM, WiFi signal)
@@ -242,7 +242,7 @@ curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
 ## 🗺️ Roadmap
 
 ### Done ✅
-- [x] Voice assistant with wake word ("Hi ESP") + tap-to-talk
+- [x] Voice assistant with wake word ("Computer") + tap-to-talk
 - [x] Expressive avatar states (idle, listening, thinking, speaking, notification)
 - [x] Push notifications with tap-to-acknowledge
 - [x] Web admin panel & WiFi captive portal
