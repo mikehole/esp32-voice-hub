@@ -76,7 +76,9 @@ void config_init(void)
             }
         }
         
-        // Fallback: hardcoded credentials for development (remove for production)
+        // Fallback: hardcoded credentials for development
+        // These only apply if NVS has no saved config
+        // Use /api/wifi/reset to clear saved config and enter AP mode
         if (config.wifi_ssid[0] == '\0') {
             ESP_LOGW(TAG, "Using hardcoded fallback WiFi credentials");
             strcpy(config.wifi_ssid, "Hyperoptic Fibre 6A50 - 2GH");

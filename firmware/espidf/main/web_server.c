@@ -482,6 +482,23 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// GET /api/wifi/reset - Clear WiFi credentials and restart in AP mode
+static esp_err_t wifi_reset_handler(httpd_req_t *req)
+{
+    ESP_LOGW(TAG, "WiFi reset requested - clearing credentials");
+    
+    // Clear WiFi credentials
+    config_set_wifi("", "");
+    
+    httpd_resp_send(req, "WiFi credentials cleared. Restarting in AP mode...", -1);
+    
+    // Restart after short delay
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    
+    return ESP_OK;
+}
+
 // GET /admin - Admin web interface
 static esp_err_t admin_handler(httpd_req_t *req)
 {
@@ -1216,6 +1233,13 @@ esp_err_t web_server_start(void)
         .handler = wifi_connect_handler
     };
     httpd_register_uri_handler(server, &wifi_connect_uri);
+    
+    httpd_uri_t wifi_reset_uri = {
+        .uri = "/api/wifi/reset",
+        .method = HTTP_GET,
+        .handler = wifi_reset_handler
+    };
+    httpd_register_uri_handler(server, &wifi_reset_uri);
     
     // Config endpoints
     httpd_uri_t config_get_uri = {
