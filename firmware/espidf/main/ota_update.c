@@ -57,7 +57,10 @@ const char* ota_get_version(void)
 
 const char* ota_get_sha256_short(void)
 {
-    return sha256_short;
+    // Return the app version (git SHA from CI build), not the binary hash
+    // The app version is embedded during build and contains the git commit SHA
+    const esp_app_desc_t* app_desc = esp_app_get_description();
+    return app_desc->version;
 }
 
 esp_err_t ota_update_from_url(const char* url)
