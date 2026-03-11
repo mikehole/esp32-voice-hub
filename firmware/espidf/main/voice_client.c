@@ -50,9 +50,8 @@ static size_t record_pos = 0;
 static SemaphoreHandle_t record_mutex = NULL;
 
 #define MAX_RECORD_SIZE (16000 * 2 * 10)  // 10 seconds max at 16kHz 16-bit
-// NOTE: Recording audio does NOT have mic gain applied (unlike wakeword feed)
-// Raw mic noise floor ~200-400, speech ~1000-3000
-#define SILENCE_THRESHOLD 800             // Avg amplitude (no gain applied to recording!)
+#define MIC_GAIN 3                        // Moderate gain (6 was clipping!)
+#define SILENCE_THRESHOLD 2400            // Avg amplitude (with gain: 800 * 3)
 #define SILENCE_COUNT_STOP 40             // Stop after ~1.2s of continuous silence
 
 // Streaming audio state
@@ -67,7 +66,7 @@ static uint8_t *stream_buffer = NULL;
 static size_t stream_buffer_size = 0;
 static size_t stream_write_pos = 0;
 static uint32_t stream_sample_rate = 24000;
-#define STREAM_BUFFER_SIZE (24000 * 2 * 5)  // 5 seconds max at 24kHz 16-bit
+#define STREAM_BUFFER_SIZE (24000 * 2 * 10)  // 10 seconds max at 24kHz 16-bit
 #define STREAM_PLAYBACK_THRESHOLD (24000 * 2 / 20)  // Start after 50ms buffered (2400 bytes)
 
 // Forward declarations
@@ -211,6 +210,16 @@ static void recording_task(void *arg)
         size_t chunk = audio_record_chunk(record_buffer + record_pos, 
                                           MIN(4096, MAX_RECORD_SIZE - record_pos));
         if (chunk > 0) {
+            // Apply mic gain to recorded audio (same as wakeword)
+            int16_t *samples = (int16_t *)(record_buffer + record_pos);
+            size_t num_samples = chunk / 2;
+            for (size_t i = 0; i < num_samples; i++) {
+                int32_t amplified = (int32_t)samples[i] * MIC_GAIN;
+                if (amplified > 32767) amplified = 32767;
+                if (amplified < -32768) amplified = -32768;
+                samples[i] = (int16_t)amplified;
+            }
+            
             // VAD: check for silence (wake word mode only)
             if (use_vad && record_pos > 16000) {  // After 0.5s of audio
                 if (is_silence((int16_t *)(record_buffer + record_pos), chunk / 2)) {
@@ -582,4 +591,40 @@ void voice_client_disconnect(void)
 bool voice_client_is_connected(void)
 {
     return ws_connected;
+}
+
+bool voice_client_speak(const char *text)
+{
+    ESP_LOGI(TAG, "voice_client_speak called: ws_connected=%d, ws_client=%p, text=%s",
+             ws_connected, (void*)ws_client, text ? text : "(null)");
+    
+    if (!ws_connected || !ws_client || !text) {
+        ESP_LOGW(TAG, "Cannot speak: ws_connected=%d, ws_client=%p", ws_connected, (void*)ws_client);
+        return false;
+    }
+    
+    // Build JSON message: {"type": "speak", "text": "..."}
+    cJSON *msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(msg, "type", "speak");
+    cJSON_AddStringToObject(msg, "text", text);
+    
+    char *json_str = cJSON_PrintUnformatted(msg);
+    cJSON_Delete(msg);
+    
+    if (!json_str) {
+        ESP_LOGE(TAG, "Failed to create speak message");
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "Sending speak request: %s", text);
+    int sent = esp_websocket_client_send_text(ws_client, json_str, strlen(json_str), pdMS_TO_TICKS(5000));
+    free(json_str);
+    
+    if (sent < 0) {
+        ESP_LOGE(TAG, "Failed to send speak request");
+        return false;
+    }
+    
+    display_set_state(DISPLAY_STATE_THINKING);
+    return true;
 }

@@ -16,6 +16,7 @@
 #include "web_server.h"
 #include "ota_update.h"
 #include "update_checker.h"
+#include "voice_client.h"
 #include "wifi_manager.h"
 #include "audio.h"
 #include "display.h"
@@ -276,7 +277,7 @@ static esp_err_t brightness_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// POST /api/notify - Show notification (text in body)
+// POST /api/notify - Show notification and speak text via TTS
 static esp_err_t notify_handler(httpd_req_t *req)
 {
     // Read message from body (max 256 chars)
@@ -285,13 +286,21 @@ static esp_err_t notify_handler(httpd_req_t *req)
     if (received > 0) {
         buf[received] = '\0';
         ESP_LOGI(TAG, "Notify: %s", buf);
-        // Flash speaking state briefly as notification indicator
-        display_set_state(DISPLAY_STATE_SPEAKING);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        display_set_state(DISPLAY_STATE_IDLE);
+        
+        // Send to OpenClaw for TTS
+        if (voice_client_speak(buf)) {
+            httpd_resp_send(req, "Speaking...", -1);
+        } else {
+            // Fallback: just flash the display if not connected
+            display_set_state(DISPLAY_STATE_SPEAKING);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            display_set_state(DISPLAY_STATE_IDLE);
+            httpd_resp_send(req, "Not connected to voice server", -1);
+        }
+    } else {
+        httpd_resp_send(req, "No message", -1);
     }
     
-    httpd_resp_send(req, "OK", 2);
     return ESP_OK;
 }
 

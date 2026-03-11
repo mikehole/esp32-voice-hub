@@ -21,3 +21,7 @@ void voice_client_disconnect(void);
 
 // Check if connected
 bool voice_client_is_connected(void);
+
+// Request TTS - sends text to OpenClaw for speech synthesis
+// Returns true if request was sent successfully
+bool voice_client_speak(const char *text);
