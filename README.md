@@ -192,6 +192,10 @@ On first boot (or after reset), the device creates an open WiFi network `ESP32-V
 
 Access the admin panel at `http://<device-ip>/admin`:
 
+<p align="center">
+  <img src="docs/images/admin-panel.png" alt="Voice Hub Admin Panel" width="300"/>
+</p>
+
 | Feature | Description |
 |---------|-------------|
 | **Status** | IP address, version, uptime, memory, WiFi signal, wake word status |
