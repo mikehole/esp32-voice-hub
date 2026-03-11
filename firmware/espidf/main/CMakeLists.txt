@@ -11,6 +11,8 @@ idf_component_register(
         "voice_client.c"
         "wakeword.c"
         "wedge_ui.c"
+        "bidi_switch_knob.c"
+        "encoder.c"
     INCLUDE_DIRS "."
     REQUIRES 
         esp_wifi
@@ -29,4 +31,5 @@ idf_component_register(
         esp_driver_i2s
         esp_websocket_client
         esp-sr
+        espressif__cJSON
 )
