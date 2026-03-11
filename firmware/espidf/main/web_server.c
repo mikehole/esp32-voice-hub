@@ -7,6 +7,7 @@
 #include "wifi_manager.h"
 #include "audio.h"
 #include "display.h"
+#include "wakeword.h"
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -300,9 +301,92 @@ static esp_err_t play_handler(httpd_req_t *req)
 
 static esp_err_t screenshot_handler(httpd_req_t *req)
 {
-    // TODO: lv_snapshot_take() crashes - disabled for now
-    httpd_resp_send_err(req, HTTPD_501_METHOD_NOT_IMPLEMENTED, "Screenshot temporarily disabled");
-    return ESP_FAIL;
+    ESP_LOGI(TAG, "Screenshot request");
+    
+    // Pause wakeword - it can interfere
+    bool was_wakeword = wakeword_is_running();
+    if (was_wakeword) {
+        wakeword_stop();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    
+    // Start capture
+    if (!display_screenshot_start()) {
+        if (was_wakeword) wakeword_start();
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to start capture");
+        return ESP_FAIL;
+    }
+    
+    // Wait for capture to complete (LVGL will fill buffer during normal refresh)
+    int timeout = 50;  // 50 * 20ms = 1 second
+    while (!display_screenshot_complete() && timeout-- > 0) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    
+    if (!display_screenshot_complete()) {
+        display_screenshot_free();
+        if (was_wakeword) wakeword_start();
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Capture timeout");
+        return ESP_FAIL;
+    }
+    
+    uint16_t *rgb_buf = display_screenshot_get_buffer();
+    if (!rgb_buf) {
+        display_screenshot_free();
+        if (was_wakeword) wakeword_start();
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No buffer");
+        return ESP_FAIL;
+    }
+    
+    // Swap bytes for BMP format
+    size_t pixels = 360 * 360;
+    for (size_t i = 0; i < pixels; i++) {
+        uint16_t px = rgb_buf[i];
+        rgb_buf[i] = (px >> 8) | (px << 8);
+    }
+    
+    // Create BMP header
+    uint8_t bmp_header[70];
+    memset(bmp_header, 0, sizeof(bmp_header));
+    
+    bmp_header[0] = 'B'; bmp_header[1] = 'M';
+    uint32_t file_size = 70 + pixels * 2;
+    memcpy(&bmp_header[2], &file_size, 4);
+    uint32_t offset = 70;
+    memcpy(&bmp_header[10], &offset, 4);
+    
+    uint32_t dib_size = 56;
+    memcpy(&bmp_header[14], &dib_size, 4);
+    int32_t width = 360, height = -360;
+    memcpy(&bmp_header[18], &width, 4);
+    memcpy(&bmp_header[22], &height, 4);
+    uint16_t planes = 1, bpp = 16;
+    memcpy(&bmp_header[26], &planes, 2);
+    memcpy(&bmp_header[28], &bpp, 2);
+    uint32_t compression = 3;
+    memcpy(&bmp_header[30], &compression, 4);
+    uint32_t img_size = pixels * 2;
+    memcpy(&bmp_header[34], &img_size, 4);
+    
+    uint32_t r_mask = 0xF800, g_mask = 0x07E0, b_mask = 0x001F;
+    memcpy(&bmp_header[54], &r_mask, 4);
+    memcpy(&bmp_header[58], &g_mask, 4);
+    memcpy(&bmp_header[62], &b_mask, 4);
+    
+    // Send
+    httpd_resp_set_type(req, "image/bmp");
+    httpd_resp_send_chunk(req, (char*)bmp_header, 70);
+    httpd_resp_send_chunk(req, (char*)rgb_buf, pixels * 2);
+    httpd_resp_send_chunk(req, NULL, 0);
+    
+    display_screenshot_free();
+    
+    if (was_wakeword) {
+        wakeword_start();
+    }
+    
+    ESP_LOGI(TAG, "Screenshot sent");
+    return ESP_OK;
 }
 
 #if 0  // Disabled until we fix the crash

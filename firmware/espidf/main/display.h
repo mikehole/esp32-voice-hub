@@ -28,6 +28,15 @@ void display_show_notification(const char* title, const char* message);
 // Set backlight brightness (0-255)
 void display_set_brightness(uint8_t brightness);
 
+// Get current brightness (0-255)
+uint8_t display_get_brightness(void);
+
 // Lock/unlock LVGL mutex for thread-safe access
 bool display_lock(int timeout_ms);
 void display_unlock(void);
+
+// Screenshot capture - call start, wait for complete, get buffer
+bool display_screenshot_start(void);
+bool display_screenshot_complete(void);
+uint16_t* display_screenshot_get_buffer(void);
+void display_screenshot_free(void);

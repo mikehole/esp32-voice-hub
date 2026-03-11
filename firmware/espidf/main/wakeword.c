@@ -255,3 +255,8 @@ bool wakeword_is_detected(void)
 {
     return wakeword_detected;
 }
+
+bool wakeword_is_running(void)
+{
+    return wakeword_enabled;
+}

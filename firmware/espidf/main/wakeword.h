@@ -23,3 +23,6 @@ void wakeword_set_callback(wakeword_callback_t callback);
 
 // Check if wake word was just detected
 bool wakeword_is_detected(void);
+
+// Check if wakeword detection is currently running
+bool wakeword_is_running(void);

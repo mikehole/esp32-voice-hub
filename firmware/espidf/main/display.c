@@ -41,7 +41,7 @@ static const char *TAG = "display";
 #define LVGL_BUF_HEIGHT        (LCD_V_RES / 20)
 #define LVGL_TICK_PERIOD_MS    2
 #define LVGL_TASK_STACK_SIZE   (6 * 1024)
-#define LVGL_TASK_PRIORITY     2
+#define LVGL_TASK_PRIORITY     5  // Higher priority for smooth rendering
 
 // LVGL mutex for thread safety
 // Exported for wedge_ui.c
@@ -55,6 +55,11 @@ static display_state_t current_state = DISPLAY_STATE_IDLE;
 // UI elements
 static lv_obj_t *status_label = NULL;
 static lv_obj_t *state_arc = NULL;
+
+// Screenshot capture state
+static uint16_t *screenshot_buffer = NULL;
+static volatile bool screenshot_capturing = false;
+static volatile int screenshot_lines_captured = 0;
 
 // SH8601 initialization commands
 static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
@@ -246,6 +251,9 @@ static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x36, (uint8_t[]){0xC0}, 1, 0},
 };
 
+// Current brightness level (0-255)
+static uint8_t current_brightness = 255;
+
 // Backlight PWM setup
 static void backlight_init(void)
 {
@@ -264,7 +272,7 @@ static void backlight_init(void)
         .timer_sel      = LEDC_TIMER_0,
         .intr_type      = LEDC_INTR_DISABLE,
         .gpio_num       = PIN_NUM_BK_LIGHT,
-        .duty           = 255,  // Full brightness
+        .duty           = current_brightness,
         .hpoint         = 0
     };
     ledc_channel_config(&ledc_channel);
@@ -274,8 +282,14 @@ static void backlight_init(void)
 
 void display_set_brightness(uint8_t brightness)
 {
+    current_brightness = brightness;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, brightness);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+uint8_t display_get_brightness(void)
+{
+    return current_brightness;
 }
 
 // LVGL flush callback
@@ -293,6 +307,20 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
     int x2 = area->x2;
     int y1 = area->y1;
     int y2 = area->y2;
+    
+    // Capture to screenshot buffer if active
+    if (screenshot_capturing && screenshot_buffer) {
+        int width = x2 - x1 + 1;
+        for (int y = y1; y <= y2; y++) {
+            uint16_t *src = (uint16_t*)color_map + (y - y1) * width;
+            uint16_t *dst = screenshot_buffer + y * LCD_H_RES + x1;
+            memcpy(dst, src, width * 2);
+        }
+        if (y2 >= LCD_V_RES - 1) {
+            screenshot_lines_captured = LCD_V_RES;
+        }
+    }
+    
     esp_lcd_panel_draw_bitmap(panel, x1, y1, x2 + 1, y2 + 1, color_map);
 }
 
@@ -315,17 +343,14 @@ static void lvgl_tick_cb(void *arg)
 static void lvgl_task(void *arg)
 {
     ESP_LOGI(TAG, "LVGL task started");
-    uint32_t delay_ms = 10;
     
     while (1) {
-        if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            delay_ms = lv_timer_handler();
+        if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            lv_timer_handler();
             xSemaphoreGive(lvgl_mutex);
         }
-        
-        if (delay_ms > 50) delay_ms = 50;
-        if (delay_ms < 5) delay_ms = 5;
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        // Minimal delay - let LVGL run as fast as possible
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -463,6 +488,7 @@ void display_init(void)
     disp_drv.rounder_cb = lvgl_rounder_cb;
     disp_drv.draw_buf = &draw_buf;
     disp_drv.user_data = panel_handle;
+    // Note: full_refresh caused issues with fast encoder - using debounce instead
     lv_disp_drv_register(&disp_drv);
     ESP_LOGI(TAG, "Display driver registered");
     
@@ -548,4 +574,51 @@ void display_show_notification(const char *title, const char *message)
 void display_loop(void)
 {
     // No-op - LVGL runs in its own task
+}
+
+bool display_screenshot_start(void)
+{
+    if (screenshot_capturing) return false;
+    
+    // Allocate buffer in PSRAM
+    size_t size = LCD_H_RES * LCD_V_RES * 2;
+    screenshot_buffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+    if (!screenshot_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate screenshot buffer");
+        return false;
+    }
+    
+    memset(screenshot_buffer, 0, size);
+    screenshot_lines_captured = 0;
+    screenshot_capturing = true;
+    
+    // Force full screen refresh
+    if (display_lock(100)) {
+        lv_obj_invalidate(lv_scr_act());
+        display_unlock();
+    }
+    
+    ESP_LOGI(TAG, "Screenshot capture started");
+    return true;
+}
+
+bool display_screenshot_complete(void)
+{
+    return screenshot_lines_captured >= LCD_V_RES;
+}
+
+uint16_t* display_screenshot_get_buffer(void)
+{
+    return screenshot_buffer;
+}
+
+void display_screenshot_free(void)
+{
+    screenshot_capturing = false;
+    if (screenshot_buffer) {
+        heap_caps_free(screenshot_buffer);
+        screenshot_buffer = NULL;
+    }
+    screenshot_lines_captured = 0;
+    ESP_LOGI(TAG, "Screenshot buffer freed");
 }
