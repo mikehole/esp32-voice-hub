@@ -1184,7 +1184,7 @@ esp_err_t web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 24;  // We have ~22 endpoints
     
     ESP_LOGI(TAG, "Starting server on port %d", config.server_port);
     

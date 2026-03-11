@@ -86,19 +86,28 @@ void app_main(void)
     }
 }
 
+// Track if web server already started
+static bool web_server_started = false;
+
 // Callback when WiFi state changes
 static void on_wifi_state_change(wifi_state_t state)
 {
     if (state == WIFI_STATE_AP_MODE) {
         ESP_LOGI(TAG, "AP mode - Captive portal at 192.168.4.1");
-        web_server_start();
-        ESP_LOGI(TAG, "Setup portal started");
+        if (!web_server_started) {
+            web_server_start();
+            web_server_started = true;
+            ESP_LOGI(TAG, "Setup portal started");
+        }
     }
     else if (state == WIFI_STATE_CONNECTED) {
         ESP_LOGI(TAG, "WiFi connected! IP: %s", wifi_manager_get_ip());
         ota_init();
-        web_server_start();
-        ESP_LOGI(TAG, "Web server started - OTA ready!");
+        if (!web_server_started) {
+            web_server_start();
+            web_server_started = true;
+            ESP_LOGI(TAG, "Web server started - OTA ready!");
+        }
         
         // Connect to OpenClaw if configured
         const config_t *cfg = config_get();
