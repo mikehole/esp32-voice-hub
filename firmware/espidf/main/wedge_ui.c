@@ -62,6 +62,18 @@ static const char* settings_menu_labels[] = {
     "Restart"       // 7: Reboot device
 };
 
+// Music control menu labels
+static const char* music_menu_labels[] = {
+    "< Back",       // 0: Return to main menu
+    "|<<",          // 1: Previous track
+    ">>|",          // 2: Next track  
+    "Play",         // 3: Play/Pause toggle
+    "Vol-",         // 4: Volume down
+    "Vol+",         // 5: Volume up
+    "Mute",         // 6: Mute toggle
+    ""              // 7: Empty
+};
+
 // Current menu state
 static menu_id_t current_menu = MENU_MAIN;
 static const char** current_labels = main_menu_labels;
@@ -230,6 +242,29 @@ static void update_center_content(void) {
                 }
                 break;
             case 7: text = "Tap to\nrestart"; break;
+        }
+        lv_label_set_text(center_text, text);
+    } else if (current_menu == MENU_MUSIC) {
+        // Music menu - show text with music controls info
+        lv_obj_add_flag(avatar_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(center_text, LV_OBJ_FLAG_HIDDEN);
+        
+        const char* text = "";
+        bool bt_connected = bluetooth_hid_is_connected();
+        
+        if (!bt_connected) {
+            text = "Bluetooth\nnot connected";
+        } else {
+            switch (selected_wedge) {
+                case 0: text = "Tap to\ngo back"; break;
+                case 1: text = "Previous\ntrack"; break;
+                case 2: text = "Next\ntrack"; break;
+                case 3: text = "Play /\nPause"; break;
+                case 4: text = "Volume\ndown"; break;
+                case 5: text = "Volume\nup"; break;
+                case 6: text = "Mute"; break;
+                default: text = "Music\nControl"; break;
+            }
         }
         lv_label_set_text(center_text, text);
     }
@@ -440,6 +475,9 @@ static void switch_menu(menu_id_t menu) {
         case MENU_SETTINGS:
             current_labels = settings_menu_labels;
             break;
+        case MENU_MUSIC:
+            current_labels = music_menu_labels;
+            break;
         case MENU_MAIN:
         default:
             current_labels = main_menu_labels;
@@ -468,11 +506,46 @@ wedge_action_t wedge_ui_center_tap(void) {
         switch (selected_wedge) {
             case 0:  // Minerva - start voice
                 return ACTION_VOICE_START;
+            case 1:  // Music - open music control
+                switch_menu(MENU_MUSIC);
+                return ACTION_SUBMENU;
             case 7:  // Settings - open submenu
                 switch_menu(MENU_SETTINGS);
                 return ACTION_SUBMENU;
             default:
                 // Other wedges - no action yet
+                return ACTION_NONE;
+        }
+    } else if (current_menu == MENU_MUSIC) {
+        switch (selected_wedge) {
+            case 0:  // Back
+                switch_menu(MENU_MAIN);
+                return ACTION_BACK;
+            case 1:  // Previous track
+                ESP_LOGI(TAG, "Music: Previous track");
+                bluetooth_hid_prev_track();
+                return ACTION_NONE;
+            case 2:  // Next track
+                ESP_LOGI(TAG, "Music: Next track");
+                bluetooth_hid_next_track();
+                return ACTION_NONE;
+            case 3:  // Play/Pause
+                ESP_LOGI(TAG, "Music: Play/Pause");
+                bluetooth_hid_play_pause();
+                return ACTION_NONE;
+            case 4:  // Volume down
+                ESP_LOGI(TAG, "Music: Volume down");
+                bluetooth_hid_volume_down();
+                return ACTION_NONE;
+            case 5:  // Volume up
+                ESP_LOGI(TAG, "Music: Volume up");
+                bluetooth_hid_volume_up();
+                return ACTION_NONE;
+            case 6:  // Mute
+                ESP_LOGI(TAG, "Music: Mute");
+                bluetooth_hid_mute();
+                return ACTION_NONE;
+            default:
                 return ACTION_NONE;
         }
     } else if (current_menu == MENU_SETTINGS) {

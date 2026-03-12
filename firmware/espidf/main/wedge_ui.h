@@ -25,6 +25,7 @@ typedef enum {
 typedef enum {
     MENU_MAIN = 0,
     MENU_SETTINGS,
+    MENU_MUSIC,      // Music control mode
     // Add more submenus here
 } menu_id_t;
 
