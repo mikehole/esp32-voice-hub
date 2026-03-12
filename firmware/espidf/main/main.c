@@ -24,6 +24,7 @@
 #include "audio.h"
 #include "voice_client.h"
 #include "notification.h"
+#include "bluetooth_hid.h"
 
 static const char *TAG = "voice_hub";
 
@@ -64,6 +65,13 @@ void app_main(void)
     // Initialize notification system
     notification_init();
     ESP_LOGI(TAG, "Notification system initialized");
+
+    // Initialize Bluetooth HID (auto-start advertising for reconnection)
+    if (bluetooth_hid_init()) {
+        ESP_LOGI(TAG, "Bluetooth HID initialized - advertising");
+    } else {
+        ESP_LOGW(TAG, "Bluetooth HID init failed");
+    }
 
     // Set up WiFi state callback to start web server when connected
     wifi_manager_set_callback(on_wifi_state_change);
