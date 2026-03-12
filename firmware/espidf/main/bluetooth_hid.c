@@ -18,7 +18,7 @@
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
-#include "services/bas/ble_svc_bas.h"
+// Removed battery service to save space
 
 static const char* TAG = "BT_HID";
 
@@ -302,7 +302,7 @@ bool bluetooth_hid_init(void) {
     // Initialize GATT services
     ble_svc_gap_init();
     ble_svc_gatt_init();
-    ble_svc_bas_init();  // Battery service
+    // Battery service removed to save space
     
     // Register our HID service
     int rc = ble_gatts_count_cfg(gatt_services);
