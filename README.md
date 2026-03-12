@@ -274,12 +274,14 @@ curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
 - [x] GitHub Actions CI
 - [x] 3D printable desk stand
 
+### In Progress 🔨
+- [ ] **Bluetooth HID** — Device pairs with PC as keyboard/media controller (Settings > BT)
+- [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand (BT HID shortcuts)
+- [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys)
+
 ### Planned 🚧
 - [ ] **OpenClaw config in admin panel** — UI to set WebSocket URL
 - [ ] **Web flasher** — Browser-based flashing via ESP Web Tools
-- [ ] **Bluetooth HID** — Device pairs with PC as keyboard/media controller
-- [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand (BT HID shortcuts)
-- [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys)
 - [ ] **Weather wedge** — Current conditions & forecast
 - [ ] **Home wedge** — Home Assistant integration
 - [ ] **Timer wedge** — Countdown timers & alarms

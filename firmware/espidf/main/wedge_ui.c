@@ -8,6 +8,7 @@
 #include "display.h"
 #include "update_checker.h"
 #include "wakeword.h"
+#include "bluetooth_hid.h"
 
 #include <string.h>
 #include <math.h>
@@ -57,7 +58,7 @@ static const char* settings_menu_labels[] = {
     "Bright",       // 3: Adjust brightness
     "Volume",       // 4: Adjust volume
     "WiFi",         // 5: WiFi settings
-    "About",        // 6: Device info
+    "BT",           // 6: Bluetooth pairing
     "Restart"       // 7: Reboot device
 };
 
@@ -216,7 +217,18 @@ static void update_center_content(void) {
             case 3: text = "Adjust\nbrightness"; break;
             case 4: text = "Adjust\nvolume"; break;
             case 5: text = "WiFi\nsetup"; break;
-            case 6: text = "Device\ninfo"; break;
+            case 6:  // Bluetooth - show state
+                {
+                    bt_state_t bt_state = bluetooth_hid_get_state();
+                    switch (bt_state) {
+                        case BT_STATE_OFF: text = "Bluetooth\nOFF"; break;
+                        case BT_STATE_ADVERTISING: text = "Pairing\nmode..."; break;
+                        case BT_STATE_CONNECTED: text = "Bluetooth\nConnected"; break;
+                        case BT_STATE_PAIRING: text = "Pairing..."; break;
+                        default: text = "Tap to\npair"; break;
+                    }
+                }
+                break;
             case 7: text = "Tap to\nrestart"; break;
         }
         lv_label_set_text(center_text, text);
@@ -493,6 +505,25 @@ wedge_action_t wedge_ui_center_tap(void) {
                 return ACTION_NONE;
             case 4:  // Volume
                 enter_adjustment_mode(ADJUST_VOLUME, 50);
+                return ACTION_NONE;
+            case 6:  // Bluetooth
+                {
+                    bt_state_t bt_state = bluetooth_hid_get_state();
+                    if (bt_state == BT_STATE_OFF) {
+                        // Initialize and start advertising
+                        ESP_LOGI(TAG, "Starting Bluetooth pairing...");
+                        bluetooth_hid_init();
+                    } else if (bt_state == BT_STATE_CONNECTED) {
+                        // Disconnect and stop
+                        ESP_LOGI(TAG, "Disconnecting Bluetooth...");
+                        bluetooth_hid_disconnect();
+                    } else if (bt_state == BT_STATE_ADVERTISING) {
+                        // Stop advertising
+                        ESP_LOGI(TAG, "Stopping Bluetooth advertising...");
+                        bluetooth_hid_stop_advertising();
+                    }
+                    update_center_content();
+                }
                 return ACTION_NONE;
             case 7:  // Restart
                 ESP_LOGI(TAG, "Restart requested");
