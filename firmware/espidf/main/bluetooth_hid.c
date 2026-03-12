@@ -480,21 +480,32 @@ static bool send_consumer_report(uint16_t key) {
         return false;
     }
     
+    ESP_LOGI(TAG, "Sending consumer report to handle %d, key=0x%04X", consumer_report_handle, key);
     int rc = ble_gatts_notify_custom(conn_handle, consumer_report_handle, om);
     if (rc != 0) {
-        ESP_LOGE(TAG, "Failed to send consumer report: %d", rc);
+        ESP_LOGE(TAG, "Failed to send consumer report: %d (handle=%d)", rc, consumer_report_handle);
         return false;
     }
     
+    ESP_LOGI(TAG, "Consumer report sent OK");
     return true;
 }
 
 bool bluetooth_hid_send_consumer_key(hid_consumer_key_t key) {
+    ESP_LOGI(TAG, "Sending consumer key: 0x%02X", key);
     // Send key down
-    if (!send_consumer_report(key)) return false;
+    if (!send_consumer_report(key)) {
+        ESP_LOGE(TAG, "Failed to send key down");
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(50));
     // Send key up
-    return send_consumer_report(0);
+    if (!send_consumer_report(0)) {
+        ESP_LOGE(TAG, "Failed to send key up");
+        return false;
+    }
+    ESP_LOGI(TAG, "Consumer key sent successfully");
+    return true;
 }
 
 bool bluetooth_hid_send_key(uint8_t modifiers, uint8_t key) {
