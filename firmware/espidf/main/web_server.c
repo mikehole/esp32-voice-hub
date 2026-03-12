@@ -23,6 +23,7 @@
 #include "display.h"
 #include "wakeword.h"
 #include "notification.h"
+#include "bluetooth_hid.h"
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -555,6 +556,19 @@ static esp_err_t status_handler(httpd_req_t *req)
     
     // Wake word status
     cJSON_AddBoolToObject(root, "wakeword", wakeword_is_running());
+    
+    // Bluetooth HID status
+    bt_state_t bt_state = bluetooth_hid_get_state();
+    const char* bt_status_str;
+    switch (bt_state) {
+        case BT_STATE_OFF: bt_status_str = "off"; break;
+        case BT_STATE_ADVERTISING: bt_status_str = "advertising"; break;
+        case BT_STATE_CONNECTED: bt_status_str = "connected"; break;
+        case BT_STATE_PAIRING: bt_status_str = "pairing"; break;
+        default: bt_status_str = "unknown"; break;
+    }
+    cJSON_AddStringToObject(root, "bluetooth", bt_status_str);
+    cJSON_AddBoolToObject(root, "bt_connected", bluetooth_hid_is_connected());
     
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
