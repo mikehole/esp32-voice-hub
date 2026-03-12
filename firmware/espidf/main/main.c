@@ -66,13 +66,6 @@ void app_main(void)
     notification_init();
     ESP_LOGI(TAG, "Notification system initialized");
 
-    // Initialize Bluetooth HID (auto-start advertising for reconnection)
-    if (bluetooth_hid_init()) {
-        ESP_LOGI(TAG, "Bluetooth HID initialized - advertising");
-    } else {
-        ESP_LOGW(TAG, "Bluetooth HID init failed");
-    }
-
     // Set up WiFi state callback to start web server when connected
     wifi_manager_set_callback(on_wifi_state_change);
     
@@ -129,5 +122,13 @@ static void on_wifi_state_change(wifi_state_t state)
         // Start wake word detection after a short delay
         vTaskDelay(pdMS_TO_TICKS(1000));
         voice_client_on_connected();
+        
+        // Initialize Bluetooth HID after everything else is stable
+        vTaskDelay(pdMS_TO_TICKS(500));
+        if (bluetooth_hid_init()) {
+            ESP_LOGI(TAG, "Bluetooth HID initialized - advertising");
+        } else {
+            ESP_LOGW(TAG, "Bluetooth HID init failed");
+        }
     }
 }
