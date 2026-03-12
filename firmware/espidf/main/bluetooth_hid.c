@@ -225,7 +225,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_PASSKEY_ACTION:
             ESP_LOGI(TAG, "Passkey action: %d", event->passkey.params.action);
             // For now, use "just works" pairing (no passkey)
-            if (event->passkey.params.action == BLE_SM_IOCAT_NONE) {
+            if (event->passkey.params.action == BLE_SM_IOACT_NONE) {
                 struct ble_sm_io pk;
                 pk.action = event->passkey.params.action;
                 ble_sm_inject_io(event->passkey.conn_handle, &pk);
