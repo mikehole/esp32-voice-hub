@@ -131,13 +131,24 @@ def focus_app(app_name: str) -> bool:
             # Filter out tiny windows (like tray icons) - must be reasonably sized
             windows = [w for w in windows if w.width > 200 and w.height > 200]
             if windows:
-                # Pick the largest window (likely the main one)
-                win = max(windows, key=lambda w: w.width * w.height)
+                # For Zoom specifically, cycle through windows on repeated presses
+                # by tracking which window we focused last time
+                if app_name.lower() == "zoom" and len(windows) > 1:
+                    # Cycle through windows
+                    global _last_zoom_window
+                    if '_last_zoom_window' not in globals():
+                        _last_zoom_window = -1
+                    _last_zoom_window = (_last_zoom_window + 1) % len(windows)
+                    win = windows[_last_zoom_window]
+                    print(f"  → Cycling Zoom windows ({_last_zoom_window + 1}/{len(windows)})")
+                else:
+                    win = windows[0]
+                
                 # Restore if minimized
                 if hasattr(win, 'isMinimized') and win.isMinimized:
                     win.restore()
                 win.activate()
-                print(f"  → Focused {app_name} ({win.title[:40]}...)")
+                print(f"  → Focused {app_name} ({win.title[:40]})")
                 return True
         
         print(f"  → No window found for {app_name}")
@@ -145,6 +156,8 @@ def focus_app(app_name: str) -> bool:
     except Exception as e:
         print(f"  → Failed to focus {app_name}: {e}")
         return False
+
+_last_zoom_window = -1  # Track for cycling
 
 
 def launch_and_focus(app_name: str):
