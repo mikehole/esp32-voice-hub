@@ -31,13 +31,29 @@ except ImportError:
     sys.exit(1)
 
 # Optional: window management (Windows only for now)
+HAS_WINDOW_MGMT = False
+gw = None
+win32gui = None
+
 try:
     import pygetwindow as gw
     HAS_WINDOW_MGMT = True
 except ImportError:
-    HAS_WINDOW_MGMT = False
+    pass
+
+# Try win32gui for more reliable window activation
+try:
+    import win32gui
+    import win32con
+except ImportError:
+    win32gui = None
+
+if not HAS_WINDOW_MGMT:
     print("Note: pygetwindow not installed, window focus won't work")
     print("      Install with: pip install pygetwindow")
+if not win32gui:
+    print("Note: pywin32 not installed, using fallback activation")
+    print("      Install with: pip install pywin32")
 
 keyboard = Controller()
 IS_WINDOWS = platform.system() == "Windows"
@@ -153,10 +169,32 @@ def focus_app(app_name: str) -> bool:
         
         print(f"  → Activating window [{idx}]: {win.title[:50]}")
         
-        # Restore if minimized
-        if hasattr(win, 'isMinimized') and win.isMinimized:
-            win.restore()
-        win.activate()
+        # Use win32gui if available (more reliable than pygetwindow.activate)
+        if win32gui:
+            try:
+                hwnd = win._hWnd
+                # Restore if minimized
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                # Bring to front
+                win32gui.SetForegroundWindow(hwnd)
+                return True
+            except Exception as e:
+                print(f"  → win32gui failed: {e}, trying fallback...")
+        
+        # Fallback to pygetwindow
+        try:
+            if hasattr(win, 'isMinimized') and win.isMinimized:
+                win.restore()
+            win.activate()
+        except Exception as e:
+            print(f"  → Fallback also failed: {e}")
+            # Last resort: just try to bring it up via minimize/restore trick
+            try:
+                win.minimize()
+                win.restore()
+            except:
+                pass
         return True
         
     except Exception as e:
