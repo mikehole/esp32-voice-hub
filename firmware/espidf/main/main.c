@@ -123,12 +123,7 @@ static void on_wifi_state_change(wifi_state_t state)
         vTaskDelay(pdMS_TO_TICKS(1000));
         voice_client_on_connected();
         
-        // Initialize Bluetooth HID after everything else is stable
-        vTaskDelay(pdMS_TO_TICKS(500));
-        if (bluetooth_hid_init()) {
-            ESP_LOGI(TAG, "Bluetooth HID initialized - advertising");
-        } else {
-            ESP_LOGW(TAG, "Bluetooth HID init failed");
-        }
+        // Note: Bluetooth HID is NOT auto-started to save memory.
+        // User must tap Settings > BT to initialize Bluetooth.
     }
 }
