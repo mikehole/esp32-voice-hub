@@ -115,27 +115,33 @@ def focus_app(app_name: str) -> bool:
         print(f"  → Window management not available (install pygetwindow)")
         return False
     
-    # Map app names to window title patterns
-    title_patterns = {
-        "spotify": "Spotify",
-        "zoom": "Zoom",
+    # Map app names to window title patterns (in priority order for apps with multiple windows)
+    # For Zoom: prioritize "Zoom Meeting" over "Zoom" to get the active meeting window
+    title_priorities = {
+        "spotify": ["Spotify"],
+        "zoom": ["Zoom Meeting", "Zoom Webinar", "Zoom"],  # Meeting windows first
     }
     
-    pattern = title_patterns.get(app_name.lower(), app_name)
+    patterns = title_priorities.get(app_name.lower(), [app_name])
     
     try:
-        windows = gw.getWindowsWithTitle(pattern)
-        if windows:
-            win = windows[0]
-            # Restore if minimized
-            if hasattr(win, 'isMinimized') and win.isMinimized:
-                win.restore()
-            win.activate()
-            print(f"  → Focused {app_name}")
-            return True
-        else:
-            print(f"  → No window found for {app_name}")
-            return False
+        # Try each pattern in priority order
+        for pattern in patterns:
+            windows = gw.getWindowsWithTitle(pattern)
+            # Filter out tiny windows (like tray icons) - must be reasonably sized
+            windows = [w for w in windows if w.width > 200 and w.height > 200]
+            if windows:
+                # Pick the largest window (likely the main one)
+                win = max(windows, key=lambda w: w.width * w.height)
+                # Restore if minimized
+                if hasattr(win, 'isMinimized') and win.isMinimized:
+                    win.restore()
+                win.activate()
+                print(f"  → Focused {app_name} ({win.title[:40]}...)")
+                return True
+        
+        print(f"  → No window found for {app_name}")
+        return False
     except Exception as e:
         print(f"  → Failed to focus {app_name}: {e}")
         return False
