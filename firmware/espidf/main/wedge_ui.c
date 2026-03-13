@@ -468,15 +468,13 @@ static void switch_menu(menu_id_t menu) {
     bool entering_music_mode = (menu == MENU_MUSIC);
     bool leaving_music_mode = (old_menu == MENU_MUSIC) && (menu == MENU_MAIN);
     
-    if (entering_music_mode && !music_mode_active) {
-        // Entering Music mode: start command server (wake word stays running)
-        ESP_LOGI(TAG, "Entering Music mode - starting command server");
-        command_server_start();
+    // Command server now runs at boot (started in main.c after WiFi connects)
+    // Just track mode for UI display purposes
+    if (entering_music_mode) {
+        ESP_LOGI(TAG, "Entering Music mode");
         music_mode_active = true;
-    } else if (leaving_music_mode && music_mode_active) {
-        // Leaving Music mode: stop command server
-        ESP_LOGI(TAG, "Leaving Music mode - stopping command server");
-        command_server_stop();
+    } else if (leaving_music_mode) {
+        ESP_LOGI(TAG, "Leaving Music mode");
         music_mode_active = false;
     }
     

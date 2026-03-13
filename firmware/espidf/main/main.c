@@ -24,6 +24,7 @@
 #include "audio.h"
 #include "voice_client.h"
 #include "notification.h"
+#include "command_server.h"
 
 static const char *TAG = "voice_hub";
 
@@ -122,7 +123,7 @@ static void on_wifi_state_change(wifi_state_t state)
         vTaskDelay(pdMS_TO_TICKS(1000));
         voice_client_on_connected();
         
-        // Note: Bluetooth HID is NOT auto-started to save memory.
-        // User must tap Settings > BT to initialize Bluetooth.
+        // Start command server for companion app (port 81)
+        command_server_start();
     }
 }
