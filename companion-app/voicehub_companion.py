@@ -109,55 +109,61 @@ def launch_app(app_name: str) -> bool:
     return False
 
 
+# Track window cycling state
+_window_cycle_index = {}
+
 def focus_app(app_name: str) -> bool:
     """Bring an application window to the front."""
+    global _window_cycle_index
+    
     if not HAS_WINDOW_MGMT:
         print(f"  → Window management not available (install pygetwindow)")
         return False
     
-    # Map app names to window title patterns (in priority order for apps with multiple windows)
-    # For Zoom: prioritize "Zoom Meeting" over "Zoom" to get the active meeting window
-    title_priorities = {
-        "spotify": ["Spotify"],
-        "zoom": ["Zoom Meeting", "Zoom Webinar", "Zoom"],  # Meeting windows first
-    }
-    
-    patterns = title_priorities.get(app_name.lower(), [app_name])
-    
     try:
-        # Try each pattern in priority order
-        for pattern in patterns:
-            windows = gw.getWindowsWithTitle(pattern)
-            # Filter out tiny windows (like tray icons) - must be reasonably sized
-            windows = [w for w in windows if w.width > 200 and w.height > 200]
-            if windows:
-                # For Zoom specifically, cycle through windows on repeated presses
-                # by tracking which window we focused last time
-                if app_name.lower() == "zoom" and len(windows) > 1:
-                    # Cycle through windows
-                    global _last_zoom_window
-                    if '_last_zoom_window' not in globals():
-                        _last_zoom_window = -1
-                    _last_zoom_window = (_last_zoom_window + 1) % len(windows)
-                    win = windows[_last_zoom_window]
-                    print(f"  → Cycling Zoom windows ({_last_zoom_window + 1}/{len(windows)})")
-                else:
-                    win = windows[0]
-                
-                # Restore if minimized
-                if hasattr(win, 'isMinimized') and win.isMinimized:
-                    win.restore()
-                win.activate()
-                print(f"  → Focused {app_name} ({win.title[:40]})")
-                return True
+        # Get all windows containing the app name
+        all_windows = gw.getAllWindows()
         
-        print(f"  → No window found for {app_name}")
-        return False
+        # For Zoom, match windows with "Zoom" in title
+        if app_name.lower() == "zoom":
+            windows = [w for w in all_windows if "Zoom" in w.title and w.width > 200 and w.height > 200]
+        elif app_name.lower() == "spotify":
+            windows = [w for w in all_windows if "Spotify" in w.title and w.width > 200 and w.height > 200]
+        else:
+            windows = [w for w in all_windows if app_name.lower() in w.title.lower() and w.width > 200 and w.height > 200]
+        
+        if not windows:
+            print(f"  → No window found for {app_name}")
+            return False
+        
+        # Debug: show all matching windows
+        print(f"  → Found {len(windows)} {app_name} window(s):")
+        for i, w in enumerate(windows):
+            print(f"      [{i}] {w.title[:50]}")
+        
+        # Cycle through windows
+        key = app_name.lower()
+        if key not in _window_cycle_index:
+            _window_cycle_index[key] = 0
+        else:
+            _window_cycle_index[key] = (_window_cycle_index[key] + 1) % len(windows)
+        
+        idx = _window_cycle_index[key]
+        win = windows[idx]
+        
+        print(f"  → Activating window [{idx}]: {win.title[:50]}")
+        
+        # Restore if minimized
+        if hasattr(win, 'isMinimized') and win.isMinimized:
+            win.restore()
+        win.activate()
+        return True
+        
     except Exception as e:
         print(f"  → Failed to focus {app_name}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-
-_last_zoom_window = -1  # Track for cycling
 
 
 def launch_and_focus(app_name: str):
