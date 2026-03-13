@@ -225,27 +225,24 @@ def focus_app(app_name: str) -> bool:
         # Use win32gui if available (more reliable than pygetwindow.activate)
         if win32gui:
             try:
-                import win32process
                 hwnd = win._hWnd
                 
                 # Restore if minimized
                 if win32gui.IsIconic(hwnd):
                     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 
-                # Windows blocks SetForegroundWindow unless we're the foreground app
-                # Workaround: attach to the target window's thread input
-                current_thread = win32api.GetCurrentThreadId()
-                target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
+                # ALT-key trick: press and release Alt to allow SetForegroundWindow
+                # This simulates user input which grants foreground permission
+                keyboard.press(Key.alt)
+                keyboard.release(Key.alt)
                 
-                if current_thread != target_thread:
-                    win32process.AttachThreadInput(current_thread, target_thread, True)
-                    try:
-                        win32gui.SetForegroundWindow(hwnd)
-                        win32gui.BringWindowToTop(hwnd)
-                    finally:
-                        win32process.AttachThreadInput(current_thread, target_thread, False)
-                else:
-                    win32gui.SetForegroundWindow(hwnd)
+                # Small delay to let Windows process the "input"
+                import time
+                time.sleep(0.05)
+                
+                # Now try to activate
+                win32gui.SetForegroundWindow(hwnd)
+                win32gui.BringWindowToTop(hwnd)
                 
                 return True
             except Exception as e:
