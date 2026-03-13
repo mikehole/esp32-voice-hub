@@ -127,13 +127,34 @@ def launch_app(app_name: str) -> bool:
     return False
 
 
-# Track window cycling state
-_window_cycle_index = {}
+def choose_best_window(app_name: str, windows):
+    """Choose the best window to activate for a given app."""
+    
+    if app_name == "zoom":
+        # Priority order for Zoom windows:
+        # 1. Active meeting window ("Zoom Meeting")
+        # 2. Webinar window
+        # 3. Workplace/main window (fallback)
+        for w in windows:
+            title = w.title.lower()
+            if "zoom meeting" in title:
+                return w
+        for w in windows:
+            title = w.title.lower()
+            if "webinar" in title:
+                return w
+        # Fallback to first non-workplace window, or workplace if that's all there is
+        for w in windows:
+            if "workplace" not in w.title.lower():
+                return w
+        return windows[0]
+    
+    # Default: return first window
+    return windows[0]
+
 
 def focus_app(app_name: str) -> bool:
     """Bring an application window to the front."""
-    global _window_cycle_index
-    
     if not HAS_WINDOW_MGMT:
         print(f"  → Window management not available (install pygetwindow)")
         return False
@@ -142,7 +163,7 @@ def focus_app(app_name: str) -> bool:
         # Get all windows containing the app name
         all_windows = gw.getAllWindows()
         
-        # For Zoom, match windows with "Zoom" in title
+        # Filter to matching windows (visible, reasonably sized)
         if app_name.lower() == "zoom":
             windows = [w for w in all_windows if "Zoom" in w.title and w.width > 200 and w.height > 200]
         elif app_name.lower() == "spotify":
@@ -159,17 +180,10 @@ def focus_app(app_name: str) -> bool:
         for i, w in enumerate(windows):
             print(f"      [{i}] {w.title[:50]}")
         
-        # Cycle through windows
-        key = app_name.lower()
-        if key not in _window_cycle_index:
-            _window_cycle_index[key] = 0
-        else:
-            _window_cycle_index[key] = (_window_cycle_index[key] + 1) % len(windows)
+        # Choose the best window (don't cycle - pick the right one)
+        win = choose_best_window(app_name.lower(), windows)
         
-        idx = _window_cycle_index[key]
-        win = windows[idx]
-        
-        print(f"  → Activating window [{idx}]: {win.title[:50]}")
+        print(f"  → Activating: {win.title[:50]}")
         
         # Use win32gui if available (more reliable than pygetwindow.activate)
         if win32gui:
