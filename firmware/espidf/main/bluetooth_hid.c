@@ -34,6 +34,10 @@ static const ble_uuid16_t hid_report_map_uuid = BLE_UUID16_INIT(0x2A4B);
 static const ble_uuid16_t hid_info_uuid = BLE_UUID16_INIT(0x2A4A);
 static const ble_uuid16_t hid_ctrl_pt_uuid = BLE_UUID16_INIT(0x2A4C);
 static const ble_uuid16_t hid_report_ref_uuid = BLE_UUID16_INIT(0x2908);  // Report Reference descriptor
+static const ble_uuid16_t hid_protocol_mode_uuid = BLE_UUID16_INIT(0x2A4E);  // Protocol Mode
+
+// Protocol Mode: 0x00 = Boot Protocol, 0x01 = Report Protocol
+static uint8_t protocol_mode = 0x01;  // Report Protocol (required for consumer controls)
 
 // Report Reference values: [Report ID, Report Type]
 // Report Type: 0x01 = Input, 0x02 = Output, 0x03 = Feature
@@ -153,6 +157,12 @@ static const struct ble_gatt_chr_def hid_characteristics[] = {
         .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
     },
     {
+        // Protocol Mode (required for HOGP)
+        .uuid = &hid_protocol_mode_uuid.u,
+        .access_cb = hid_chr_access,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE_NO_RSP,
+    },
+    {
         // Keyboard Report (Report ID 1)
         .uuid = &hid_report_uuid.u,
         .access_cb = hid_chr_access,
@@ -213,6 +223,20 @@ static int hid_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         // HID Control Point write - just acknowledge
         ESP_LOGI(TAG, "HID Control Point write");
         return 0;
+    }
+    
+    if (ble_uuid_cmp(uuid, &hid_protocol_mode_uuid.u) == 0) {
+        if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+            int rc = os_mbuf_append(ctxt->om, &protocol_mode, 1);
+            return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+        } else if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+            uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+            if (len == 1) {
+                os_mbuf_copydata(ctxt->om, 0, 1, &protocol_mode);
+                ESP_LOGI(TAG, "Protocol mode set to %d", protocol_mode);
+            }
+            return 0;
+        }
     }
     
     if (ble_uuid_cmp(uuid, &hid_report_uuid.u) == 0) {
@@ -433,6 +457,7 @@ bool bluetooth_hid_start_advertising(void) {
     
     current_state = BT_STATE_ADVERTISING;
     ESP_LOGI(TAG, "Started advertising as '%s'", DEVICE_NAME);
+    ESP_LOGI(TAG, "Report handles: keyboard=%d, consumer=%d", keyboard_report_handle, consumer_report_handle);
     return true;
 }
 
