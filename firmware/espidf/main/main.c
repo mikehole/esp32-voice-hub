@@ -24,7 +24,6 @@
 #include "audio.h"
 #include "voice_client.h"
 #include "notification.h"
-#include "bluetooth_hid.h"
 
 static const char *TAG = "voice_hub";
 

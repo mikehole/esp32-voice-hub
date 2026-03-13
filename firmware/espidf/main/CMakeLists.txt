@@ -17,7 +17,7 @@ idf_component_register(
         "encoder.c"
         "ring_buffer.c"
         "notification.c"
-        "bluetooth_hid.c"
+        "command_server.c"
     INCLUDE_DIRS "."
     REQUIRES 
         esp_wifi
@@ -38,5 +38,4 @@ idf_component_register(
         esp-sr
         espressif__cJSON
         esp_http_client
-        bt
 )

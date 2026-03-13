@@ -8,7 +8,7 @@
 #include "display.h"
 #include "update_checker.h"
 #include "wakeword.h"
-#include "bluetooth_hid.h"
+#include "command_server.h"
 
 #include <string.h>
 #include <math.h>
@@ -229,18 +229,7 @@ static void update_center_content(void) {
             case 3: text = "Adjust\nbrightness"; break;
             case 4: text = "Adjust\nvolume"; break;
             case 5: text = "WiFi\nsetup"; break;
-            case 6:  // Bluetooth - show state
-                {
-                    bt_state_t bt_state = bluetooth_hid_get_state();
-                    switch (bt_state) {
-                        case BT_STATE_OFF: text = "Bluetooth\nOFF"; break;
-                        case BT_STATE_ADVERTISING: text = "Pairing\nmode..."; break;
-                        case BT_STATE_CONNECTED: text = "Bluetooth\nConnected"; break;
-                        case BT_STATE_PAIRING: text = "Pairing..."; break;
-                        default: text = "Tap to\npair"; break;
-                    }
-                }
-                break;
+            case 6: text = "(unused)"; break;
             case 7: text = "Tap to\nrestart"; break;
         }
         lv_label_set_text(center_text, text);
@@ -250,13 +239,11 @@ static void update_center_content(void) {
         lv_obj_clear_flag(center_text, LV_OBJ_FLAG_HIDDEN);
         
         const char* text = "";
-        bt_state_t bt_state = bluetooth_hid_get_state();
+        int clients = command_server_client_count();
         
-        if (bt_state == BT_STATE_OFF) {
-            text = "Starting\nBluetooth...";
-        } else if (bt_state == BT_STATE_ADVERTISING) {
-            text = "Waiting for\nPC to connect";
-        } else if (bt_state == BT_STATE_CONNECTED) {
+        if (clients == 0) {
+            text = "No PC\nconnected";
+        } else {
             switch (selected_wedge) {
                 case 0: text = "Tap to\nexit"; break;
                 case 1: text = "Previous\ntrack"; break;
@@ -267,8 +254,6 @@ static void update_center_content(void) {
                 case 6: text = "Mute"; break;
                 default: text = "Music\nControl"; break;
             }
-        } else {
-            text = "Connecting...";
         }
         lv_label_set_text(center_text, text);
     }
@@ -471,37 +456,28 @@ static void update_all_labels(void) {
     update_highlight();
 }
 
-// Track if we're in a BT mode (Music/Zoom)
-static bool bt_mode_active = false;
+// Track if we're in Music/Zoom mode
+static bool music_mode_active = false;
 
 // Switch to a different menu
 static void switch_menu(menu_id_t menu) {
     menu_id_t old_menu = current_menu;
     current_menu = menu;
     
-    // Handle resource switching for BT modes (Music, Zoom)
-    bool entering_bt_mode = (menu == MENU_MUSIC);  // Add MENU_ZOOM later
-    bool leaving_bt_mode = (old_menu == MENU_MUSIC) && (menu == MENU_MAIN);
+    // Handle resource switching for Music/Zoom modes
+    bool entering_music_mode = (menu == MENU_MUSIC);
+    bool leaving_music_mode = (old_menu == MENU_MUSIC) && (menu == MENU_MAIN);
     
-    if (entering_bt_mode && !bt_mode_active) {
-        // Entering BT mode: stop wake word, start Bluetooth
-        ESP_LOGI(TAG, "Entering BT mode - stopping wake word, starting BT");
-        wakeword_stop();
-        vTaskDelay(pdMS_TO_TICKS(100));  // Let it settle
-        if (bluetooth_hid_init()) {
-            ESP_LOGI(TAG, "Bluetooth HID initialized");
-            bt_mode_active = true;
-        } else {
-            ESP_LOGE(TAG, "Bluetooth HID init failed!");
-        }
-    } else if (leaving_bt_mode && bt_mode_active) {
-        // Leaving BT mode: stop Bluetooth, restart wake word
-        ESP_LOGI(TAG, "Leaving BT mode - stopping BT, restarting wake word");
-        bluetooth_hid_deinit();
-        vTaskDelay(pdMS_TO_TICKS(100));  // Let it settle
-        wakeword_start();
-        bt_mode_active = false;
-        ESP_LOGI(TAG, "Wake word restarted");
+    if (entering_music_mode && !music_mode_active) {
+        // Entering Music mode: start command server (wake word stays running)
+        ESP_LOGI(TAG, "Entering Music mode - starting command server");
+        command_server_start();
+        music_mode_active = true;
+    } else if (leaving_music_mode && music_mode_active) {
+        // Leaving Music mode: stop command server
+        ESP_LOGI(TAG, "Leaving Music mode - stopping command server");
+        command_server_stop();
+        music_mode_active = false;
     }
     
     switch (menu) {
@@ -556,27 +532,27 @@ wedge_action_t wedge_ui_center_tap(void) {
                 return ACTION_BACK;
             case 1:  // Previous track
                 ESP_LOGI(TAG, "Music: Previous track");
-                bluetooth_hid_prev_track();
+                command_send_prev_track();
                 return ACTION_NONE;
             case 2:  // Next track
                 ESP_LOGI(TAG, "Music: Next track");
-                bluetooth_hid_next_track();
+                command_send_next_track();
                 return ACTION_NONE;
             case 3:  // Play/Pause
                 ESP_LOGI(TAG, "Music: Play/Pause");
-                bluetooth_hid_play_pause();
+                command_send_play_pause();
                 return ACTION_NONE;
             case 4:  // Volume down
                 ESP_LOGI(TAG, "Music: Volume down");
-                bluetooth_hid_volume_down();
+                command_send_volume_down();
                 return ACTION_NONE;
             case 5:  // Volume up
                 ESP_LOGI(TAG, "Music: Volume up");
-                bluetooth_hid_volume_up();
+                command_send_volume_up();
                 return ACTION_NONE;
             case 6:  // Mute
                 ESP_LOGI(TAG, "Music: Mute");
-                bluetooth_hid_mute();
+                command_send_mute();
                 return ACTION_NONE;
             default:
                 return ACTION_NONE;
@@ -612,24 +588,7 @@ wedge_action_t wedge_ui_center_tap(void) {
             case 4:  // Volume
                 enter_adjustment_mode(ADJUST_VOLUME, 50);
                 return ACTION_NONE;
-            case 6:  // Bluetooth
-                {
-                    bt_state_t bt_state = bluetooth_hid_get_state();
-                    if (bt_state == BT_STATE_OFF) {
-                        // Initialize and start advertising
-                        ESP_LOGI(TAG, "Starting Bluetooth pairing...");
-                        bluetooth_hid_init();
-                    } else if (bt_state == BT_STATE_CONNECTED) {
-                        // Disconnect and stop
-                        ESP_LOGI(TAG, "Disconnecting Bluetooth...");
-                        bluetooth_hid_disconnect();
-                    } else if (bt_state == BT_STATE_ADVERTISING) {
-                        // Stop advertising
-                        ESP_LOGI(TAG, "Stopping Bluetooth advertising...");
-                        bluetooth_hid_stop_advertising();
-                    }
-                    update_center_content();
-                }
+            case 6:  // (was Bluetooth - now unused)
                 return ACTION_NONE;
             case 7:  // Restart
                 ESP_LOGI(TAG, "Restart requested");
