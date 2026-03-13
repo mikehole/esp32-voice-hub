@@ -6,7 +6,7 @@ Connects to the Voice Hub via WebSocket and translates commands to system keypre
 Works on Windows, macOS, and Linux.
 
 Usage:
-    pip install websockets pynput pygetwindow
+    pip install websockets pynput pygetwindow pywin32
     python voicehub_companion.py [--host 192.168.1.224] [--port 81]
 """
 
@@ -16,7 +16,44 @@ import json
 import subprocess
 import sys
 import platform
+import os
+import ctypes
 from typing import Optional
+
+
+def is_admin():
+    """Check if running with admin privileges (Windows)."""
+    if platform.system() != "Windows":
+        return True  # Not applicable on other platforms
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+
+def run_as_admin():
+    """Re-launch this script with admin privileges."""
+    if platform.system() != "Windows":
+        return False
+    
+    try:
+        # Re-run the script with elevation
+        script = os.path.abspath(sys.argv[0])
+        params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
+        
+        # Use ShellExecute with 'runas' to trigger UAC
+        ctypes.windll.shell32.ShellExecuteW(
+            None,           # hwnd
+            "runas",        # operation (run as admin)
+            sys.executable, # program
+            f'"{script}" {params}',  # parameters
+            None,           # directory
+            1               # show window
+        )
+        return True
+    except Exception as e:
+        print(f"Failed to elevate: {e}")
+        return False
 
 try:
     import websockets
@@ -332,9 +369,19 @@ async def connect_and_listen(host: str, port: int):
 
 
 def main():
+    # Check for admin on Windows (needed for window focus to work reliably)
+    if platform.system() == "Windows" and not is_admin():
+        print("Requesting admin privileges for window management...")
+        if run_as_admin():
+            sys.exit(0)  # Exit this instance, elevated one will take over
+        else:
+            print("Warning: Running without admin - window focus may not work")
+            print()
+    
     parser = argparse.ArgumentParser(description="ESP32 Voice Hub Companion App")
     parser.add_argument("--host", default="192.168.1.224", help="Voice Hub IP address")
     parser.add_argument("--port", type=int, default=81, help="WebSocket port")
+    parser.add_argument("--no-elevate", action="store_true", help="Don't request admin")
     args = parser.parse_args()
     
     print("=" * 50)
@@ -343,6 +390,7 @@ def main():
     print(f"Host: {args.host}")
     print(f"Port: {args.port}")
     print(f"Platform: {platform.system()}")
+    print(f"Admin: {'Yes' if is_admin() else 'No'}")
     print(f"Window management: {'Yes' if HAS_WINDOW_MGMT else 'No'}")
     print()
     
