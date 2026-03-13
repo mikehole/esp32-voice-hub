@@ -339,6 +339,7 @@ curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
 - [x] Screenshot API
 - [x] GitHub Actions CI
 - [x] 3D printable desk stand
+- [x] Themed avatars — Unique Minerva for each wedge
 
 ### Done ✅ (Recent)
 - [x] **Music wedge** — Play/pause, next/prev, volume, Spotify launch
@@ -351,7 +352,6 @@ curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
 - [ ] **Weather wedge** — Current conditions & forecast
 - [ ] **Home wedge** — Home Assistant integration
 - [ ] **Timer wedge** — Countdown timers & alarms
-- [ ] **Themed avatars** — Unique Minerva for each wedge
 
 ## 📝 License
 
