@@ -23,7 +23,7 @@
 static const char* TAG = "BT_HID";
 
 // Device name shown during pairing
-#define DEVICE_NAME "ESP32 Voice Hub"
+#define DEVICE_NAME "VoiceHub"  // Short name to fit in 31-byte adv packet
 
 // HID Service UUID: 0x1812
 static const ble_uuid16_t hid_svc_uuid = BLE_UUID16_INIT(0x1812);
@@ -353,15 +353,11 @@ bool bluetooth_hid_start_advertising(void) {
     struct ble_gap_adv_params adv_params = {0};
     struct ble_hs_adv_fields fields = {0};
     
-    // Advertising data
+    // Advertising data - keep minimal to fit 31-byte limit
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.tx_pwr_lvl_is_present = 1;
-    fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
     fields.name = (uint8_t *)DEVICE_NAME;
     fields.name_len = strlen(DEVICE_NAME);
     fields.name_is_complete = 1;
-    fields.appearance = 0x03C1;  // Keyboard
-    fields.appearance_is_present = 1;
     
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
