@@ -61,7 +61,7 @@ APP_LAUNCH = {
         "mac": "Spotify",
     },
     "zoom": {
-        "windows": r"C:\Users\{user}\AppData\Roaming\Zoom\bin\Zoom.exe",
+        "windows": r"C:\Program Files\Zoom\bin\Zoom.exe",
         "mac": "zoom.us",
     },
 }
