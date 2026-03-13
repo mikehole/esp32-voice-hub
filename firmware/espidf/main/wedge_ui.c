@@ -71,7 +71,7 @@ static const char* music_menu_labels[] = {
     "Vol-",         // 4: Volume down
     "Vol+",         // 5: Volume up
     "Mute",         // 6: Mute toggle
-    ""              // 7: Empty
+    "Spotify"       // 7: Launch/focus Spotify
 };
 
 // Current menu state
@@ -252,6 +252,7 @@ static void update_center_content(void) {
                 case 4: text = "Volume\ndown"; break;
                 case 5: text = "Volume\nup"; break;
                 case 6: text = "Mute"; break;
+                case 7: text = "Open\nSpotify"; break;
                 default: text = "Music\nControl"; break;
             }
         }
@@ -551,6 +552,10 @@ wedge_action_t wedge_ui_center_tap(void) {
             case 6:  // Mute
                 ESP_LOGI(TAG, "Music: Mute");
                 command_send_mute();
+                return ACTION_NONE;
+            case 7:  // Spotify
+                ESP_LOGI(TAG, "Music: Launch Spotify");
+                command_send("launch:spotify", NULL);
                 return ACTION_NONE;
             default:
                 return ACTION_NONE;
