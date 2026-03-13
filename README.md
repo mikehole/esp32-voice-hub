@@ -16,8 +16,8 @@ A desktop voice assistant built on the Waveshare ESP32-S3-Knob-Touch-LCD-1.8 —
 - 🌐 **Web admin panel** — configure WiFi, brightness, OTA updates
 - 🔄 **OTA updates** — over-the-air firmware updates via HTTP
 - 🔊 **Audio output** — onboard speaker + 3.5mm DAC
-
-> ⚠️ **Current Status:** Only the **Minerva** (voice assistant) wedge is functional. Other wedges (Music, Weather, Home, etc.) are UI placeholders for future development.
+- 🎵 **Music controls** — Play/pause, next/prev, volume via companion app
+- 📹 **Zoom controls** — Mute, camera, share screen, leave meeting via companion app
 
 ## 🎭 Avatar States
 
@@ -136,7 +136,8 @@ esp32-voice-hub/
 │       │   ├── wakeword.c          # ESP-SR wake word detection
 │       │   ├── audio.c             # I2S mic + DAC playback
 │       │   ├── display.c           # LVGL display management
-│       │   ├── wedge_ui.c          # Radial menu UI
+│       │   ├── wedge_ui.c          # Radial menu UI + Music/Zoom menus
+│       │   ├── command_server.c    # WebSocket server for companion app
 │       │   ├── notification.c      # Push notification system
 │       │   ├── web_server.c        # HTTP API + admin panel
 │       │   ├── wifi_manager.c      # WiFi + captive portal
@@ -144,6 +145,10 @@ esp32-voice-hub/
 │       │   └── avatar_images.h     # Embedded avatar images (RGB565)
 │       ├── sdkconfig.defaults
 │       └── CMakeLists.txt
+├── companion-app/                   # PC companion app
+│   ├── voicehub_companion.py       # Main script
+│   ├── requirements.txt            # Python dependencies
+│   └── README.md                   # Setup instructions
 ├── openclaw-plugin/                 # OpenClaw voice server plugin
 ├── avatar-poses/                    # Source avatar images
 │   └── mike-picks/cropped/          # Processed 130x130 images
@@ -207,6 +212,67 @@ Access the admin panel at `http://<device-ip>/admin`:
 ### OpenClaw Configuration
 
 The OpenClaw WebSocket endpoint is currently configured in `config.c` (hardcoded fallback) or via the setup portal's step 2. The device connects to this endpoint for voice processing.
+
+## 🎮 Companion App (PC Control)
+
+The Voice Hub can control your PC via a Python companion app. The device runs a WebSocket server on port 81 that sends commands to the companion app, which simulates keypresses and controls windows.
+
+### Setup
+
+```bash
+cd companion-app
+pip install -r requirements.txt
+python voicehub_companion.py
+```
+
+On Windows, the app will request admin privileges (needed for reliable window focus).
+
+### Music Controls
+
+Tap **Music** on the main menu to access:
+
+| Button | Action |
+|--------|--------|
+| \|<< | Previous track |
+| >>\| | Next track |
+| Play | Play/Pause toggle |
+| Vol- | Volume down |
+| Vol+ | Volume up |
+| Mute | Mute toggle |
+| Spotify | Launch/focus Spotify |
+
+### Zoom Controls
+
+Tap **Zoom** on the main menu to access:
+
+| Button | Action | Shortcut |
+|--------|--------|----------|
+| Mic | Mute/Unmute | Alt+A |
+| Video | Camera on/off | Alt+V |
+| Share | Share screen | Alt+S |
+| Chat | Open chat panel | Alt+H |
+| Users | Participants panel | Alt+U |
+| Leave | Leave meeting | Alt+Q |
+| Zoom | Launch/focus Zoom | — |
+
+### How It Works
+
+```
+┌─────────────────────┐         WebSocket          ┌─────────────────────┐
+│   ESP32 Voice Hub   │ ──────────────────────────▶│   Companion App     │
+│   (port 81)         │   {"cmd":"play_pause"}     │   (Python)          │
+└─────────────────────┘                            └─────────────────────┘
+                                                             │
+                                                             ▼
+                                                   ┌─────────────────────┐
+                                                   │  Windows/macOS      │
+                                                   │  • Media keys       │
+                                                   │  • App launch       │
+                                                   │  • Window focus     │
+                                                   └─────────────────────┘
+```
+
+The command server starts automatically when WiFi connects — no need to be in Music or Zoom mode for the companion app to connect.
 
 ## 📡 API Endpoints
 
@@ -274,10 +340,10 @@ curl -X POST "http://<device-ip>/api/notify-audio?rate=24000" \
 - [x] GitHub Actions CI
 - [x] 3D printable desk stand
 
-### In Progress 🔨
-- [ ] **Bluetooth HID** — Device pairs with PC as keyboard/media controller (Settings > BT)
-- [ ] **Zoom/Meeting wedge** — Mute, camera, raise hand (BT HID shortcuts)
-- [ ] **Music wedge** — Play/pause, next/prev, volume (BT HID media keys)
+### Done ✅ (Recent)
+- [x] **Music wedge** — Play/pause, next/prev, volume, Spotify launch
+- [x] **Zoom wedge** — Mute, camera, share screen, chat, participants, leave meeting, Zoom launch
+- [x] **Companion app** — Python WebSocket client that receives commands and controls PC
 
 ### Planned 🚧
 - [ ] **OpenClaw config in admin panel** — UI to set WebSocket URL

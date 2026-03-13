@@ -1,3 +1,7 @@
+# Core dependencies
 websockets>=10.0
 pynput>=1.7.6
-pygetwindow>=0.0.9  # Optional: for window focus (Windows only)
+
+# Windows-specific (optional but recommended)
+pygetwindow>=0.0.9  # Window enumeration
+pywin32>=306        # Native Windows API for window focus
