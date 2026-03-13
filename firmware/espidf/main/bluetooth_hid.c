@@ -167,7 +167,7 @@ static const struct ble_gatt_chr_def hid_characteristics[] = {
         .uuid = &hid_report_uuid.u,
         .access_cb = hid_chr_access,
         .val_handle = &keyboard_report_handle,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC,
         .descriptors = keyboard_report_dscs,
     },
     {
@@ -175,7 +175,7 @@ static const struct ble_gatt_chr_def hid_characteristics[] = {
         .uuid = &hid_report_uuid.u,
         .access_cb = hid_chr_access,
         .val_handle = &consumer_report_handle,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC,
         .descriptors = consumer_report_dscs,
     },
     {
@@ -263,6 +263,14 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
                 if (ble_gap_conn_find(conn_handle, &desc) == 0) {
                     // Could resolve name from address here
                     snprintf(peer_name, sizeof(peer_name), "Device");
+                }
+                
+                // Initiate security/pairing - HID requires encryption
+                int rc = ble_gap_security_initiate(conn_handle);
+                if (rc != 0) {
+                    ESP_LOGW(TAG, "Failed to initiate security: %d", rc);
+                } else {
+                    ESP_LOGI(TAG, "Security initiated");
                 }
             } else {
                 ESP_LOGW(TAG, "Connection failed, status=%d", event->connect.status);
