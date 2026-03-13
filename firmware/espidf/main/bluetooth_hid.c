@@ -18,7 +18,7 @@
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
-#include "store/config/ble_store_config.h"
+#include "host/util/util.h"
 // Removed battery service to save space
 
 static const char* TAG = "BT_HID";
@@ -382,8 +382,7 @@ bool bluetooth_hid_init(void) {
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;  // Store status callback
     
-    // Initialize NVS store for bonding
-    ble_store_config_init();
+    // NVS store is auto-initialized by NimBLE when CONFIG_BT_NIMBLE_NVS_PERSIST is enabled
     
     // Initialize GATT services
     ble_svc_gap_init();
