@@ -18,6 +18,7 @@
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "store/config/ble_store_config.h"
 // Removed battery service to save space
 
 static const char* TAG = "BT_HID";
@@ -308,6 +309,15 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
             ESP_LOGI(TAG, "Encryption change: status=%d", event->enc_change.status);
             break;
 
+        case BLE_GAP_EVENT_REPEAT_PAIRING: {
+            // Delete old bond and allow re-pairing
+            ESP_LOGI(TAG, "Repeat pairing requested");
+            struct ble_gap_conn_desc desc;
+            ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+            ble_store_util_delete_peer(&desc.peer_id_addr);
+            return BLE_GAP_REPEAT_PAIRING_RETRY;
+        }
+
         case BLE_GAP_EVENT_SUBSCRIBE:
             ESP_LOGI(TAG, "Subscribe: attr_handle=%d, cur_notify=%d",
                      event->subscribe.attr_handle, event->subscribe.cur_notify);
@@ -370,6 +380,10 @@ bool bluetooth_hid_init(void) {
     ble_hs_cfg.sm_sc = 1;  // Secure connections
     ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;  // Store status callback
+    
+    // Initialize NVS store for bonding
+    ble_store_config_init();
     
     // Initialize GATT services
     ble_svc_gap_init();
