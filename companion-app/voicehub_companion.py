@@ -181,20 +181,22 @@ def handle_command(cmd: str, arg: Optional[str] = None):
         focus_app(app)
         return
     
-    # Zoom shortcuts
-    if cmd == "zoom_mute":
-        print("  → Zoom: Toggle mute (Alt+A)")
-        keyboard.press(Key.alt)
-        keyboard.press('a')
-        keyboard.release('a')
-        keyboard.release(Key.alt)
-        return
+    # Zoom shortcuts (all use Alt+key)
+    zoom_shortcuts = {
+        "zoom_mute": ("a", "Toggle mute"),
+        "zoom_video": ("v", "Toggle video"),
+        "zoom_share": ("s", "Share screen"),
+        "zoom_chat": ("h", "Open chat"),
+        "zoom_participants": ("u", "Participants"),
+        "zoom_leave": ("q", "Leave meeting"),
+    }
     
-    if cmd == "zoom_video":
-        print("  → Zoom: Toggle video (Alt+V)")
+    if cmd in zoom_shortcuts:
+        key, desc = zoom_shortcuts[cmd]
+        print(f"  → Zoom: {desc} (Alt+{key.upper()})")
         keyboard.press(Key.alt)
-        keyboard.press('v')
-        keyboard.release('v')
+        keyboard.press(key)
+        keyboard.release(key)
         keyboard.release(Key.alt)
         return
     

@@ -26,7 +26,7 @@ typedef enum {
     MENU_MAIN = 0,
     MENU_SETTINGS,
     MENU_MUSIC,      // Music control mode
-    // Add more submenus here
+    MENU_ZOOM,       // Zoom control mode
 } menu_id_t;
 
 // Action result from center tap

@@ -74,6 +74,18 @@ static const char* music_menu_labels[] = {
     "Spotify"       // 7: Launch/focus Spotify
 };
 
+// Zoom control menu labels
+static const char* zoom_menu_labels[] = {
+    "< Back",       // 0: Return to main menu
+    "Mic",          // 1: Mute/Unmute microphone (Alt+A)
+    "Video",        // 2: Start/Stop video (Alt+V)
+    "Share",        // 3: Share screen (Alt+S)
+    "Chat",         // 4: Open chat (Alt+H)
+    "Users",        // 5: Participants panel (Alt+U)
+    "Leave",        // 6: Leave meeting (Alt+Q)
+    "Zoom"          // 7: Launch/focus Zoom
+};
+
 // Current menu state
 static menu_id_t current_menu = MENU_MAIN;
 static const char** current_labels = main_menu_labels;
@@ -254,6 +266,30 @@ static void update_center_content(void) {
                 case 6: text = "Mute"; break;
                 case 7: text = "Open\nSpotify"; break;
                 default: text = "Music\nControl"; break;
+            }
+        }
+        lv_label_set_text(center_text, text);
+    } else if (current_menu == MENU_ZOOM) {
+        // Zoom menu
+        lv_obj_add_flag(avatar_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(center_text, LV_OBJ_FLAG_HIDDEN);
+        
+        const char* text = "";
+        int clients = command_server_client_count();
+        
+        if (clients == 0) {
+            text = "No PC\nconnected";
+        } else {
+            switch (selected_wedge) {
+                case 0: text = "Tap to\nexit"; break;
+                case 1: text = "Mute /\nUnmute"; break;
+                case 2: text = "Camera\nOn/Off"; break;
+                case 3: text = "Share\nScreen"; break;
+                case 4: text = "Open\nChat"; break;
+                case 5: text = "Show\nUsers"; break;
+                case 6: text = "Leave\nMeeting"; break;
+                case 7: text = "Open\nZoom"; break;
+                default: text = "Zoom\nControl"; break;
             }
         }
         lv_label_set_text(center_text, text);
@@ -486,6 +522,9 @@ static void switch_menu(menu_id_t menu) {
         case MENU_MUSIC:
             current_labels = music_menu_labels;
             break;
+        case MENU_ZOOM:
+            current_labels = zoom_menu_labels;
+            break;
         case MENU_MAIN:
         default:
             current_labels = main_menu_labels;
@@ -517,11 +556,50 @@ wedge_action_t wedge_ui_center_tap(void) {
             case 1:  // Music - open music control
                 switch_menu(MENU_MUSIC);
                 return ACTION_SUBMENU;
+            case 6:  // Zoom - open zoom control
+                switch_menu(MENU_ZOOM);
+                return ACTION_SUBMENU;
             case 7:  // Settings - open submenu
                 switch_menu(MENU_SETTINGS);
                 return ACTION_SUBMENU;
             default:
                 // Other wedges - no action yet
+                return ACTION_NONE;
+        }
+    } else if (current_menu == MENU_ZOOM) {
+        switch (selected_wedge) {
+            case 0:  // Back
+                switch_menu(MENU_MAIN);
+                return ACTION_BACK;
+            case 1:  // Mic - mute/unmute
+                ESP_LOGI(TAG, "Zoom: Toggle mic");
+                command_send("zoom_mute", NULL);
+                return ACTION_NONE;
+            case 2:  // Video - start/stop
+                ESP_LOGI(TAG, "Zoom: Toggle video");
+                command_send("zoom_video", NULL);
+                return ACTION_NONE;
+            case 3:  // Share screen
+                ESP_LOGI(TAG, "Zoom: Share screen");
+                command_send("zoom_share", NULL);
+                return ACTION_NONE;
+            case 4:  // Chat
+                ESP_LOGI(TAG, "Zoom: Open chat");
+                command_send("zoom_chat", NULL);
+                return ACTION_NONE;
+            case 5:  // Participants
+                ESP_LOGI(TAG, "Zoom: Participants");
+                command_send("zoom_participants", NULL);
+                return ACTION_NONE;
+            case 6:  // Leave meeting
+                ESP_LOGI(TAG, "Zoom: Leave meeting");
+                command_send("zoom_leave", NULL);
+                return ACTION_NONE;
+            case 7:  // Launch Zoom
+                ESP_LOGI(TAG, "Zoom: Launch app");
+                command_send("launch:zoom", NULL);
+                return ACTION_NONE;
+            default:
                 return ACTION_NONE;
         }
     } else if (current_menu == MENU_MUSIC) {
