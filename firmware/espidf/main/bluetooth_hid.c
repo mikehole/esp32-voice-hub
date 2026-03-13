@@ -33,6 +33,12 @@ static const ble_uuid16_t hid_report_uuid = BLE_UUID16_INIT(0x2A4D);
 static const ble_uuid16_t hid_report_map_uuid = BLE_UUID16_INIT(0x2A4B);
 static const ble_uuid16_t hid_info_uuid = BLE_UUID16_INIT(0x2A4A);
 static const ble_uuid16_t hid_ctrl_pt_uuid = BLE_UUID16_INIT(0x2A4C);
+static const ble_uuid16_t hid_report_ref_uuid = BLE_UUID16_INIT(0x2908);  // Report Reference descriptor
+
+// Report Reference values: [Report ID, Report Type]
+// Report Type: 0x01 = Input, 0x02 = Output, 0x03 = Feature
+static const uint8_t keyboard_report_ref[] = { 0x01, 0x01 };  // Report ID 1, Input
+static const uint8_t consumer_report_ref[] = { 0x02, 0x01 };  // Report ID 2, Input
 
 // Connection handle
 static uint16_t conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -101,6 +107,30 @@ static void on_sync(void);
 static void on_reset(int reason);
 static int hid_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                           struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int hid_dsc_access(uint16_t conn_handle, uint16_t attr_handle,
+                          struct ble_gatt_access_ctxt *ctxt, void *arg);
+
+// Descriptors for keyboard report
+static const struct ble_gatt_dsc_def keyboard_report_dscs[] = {
+    {
+        .uuid = &hid_report_ref_uuid.u,
+        .att_flags = BLE_ATT_F_READ,
+        .access_cb = hid_dsc_access,
+        .arg = (void*)keyboard_report_ref,
+    },
+    { 0 }  // End
+};
+
+// Descriptors for consumer report
+static const struct ble_gatt_dsc_def consumer_report_dscs[] = {
+    {
+        .uuid = &hid_report_ref_uuid.u,
+        .att_flags = BLE_ATT_F_READ,
+        .access_cb = hid_dsc_access,
+        .arg = (void*)consumer_report_ref,
+    },
+    { 0 }  // End
+};
 
 // GATT service definitions
 static const struct ble_gatt_chr_def hid_characteristics[] = {
@@ -128,6 +158,7 @@ static const struct ble_gatt_chr_def hid_characteristics[] = {
         .access_cb = hid_chr_access,
         .val_handle = &keyboard_report_handle,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .descriptors = keyboard_report_dscs,
     },
     {
         // Consumer Report (Report ID 2)
@@ -135,6 +166,7 @@ static const struct ble_gatt_chr_def hid_characteristics[] = {
         .access_cb = hid_chr_access,
         .val_handle = &consumer_report_handle,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .descriptors = consumer_report_dscs,
     },
     {
         0,  // End of characteristics
@@ -151,6 +183,14 @@ static const struct ble_gatt_svc_def gatt_services[] = {
         0,  // End of services
     },
 };
+
+// GATT descriptor access callback - returns Report Reference
+static int hid_dsc_access(uint16_t conn_handle, uint16_t attr_handle,
+                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    const uint8_t *report_ref = (const uint8_t *)arg;
+    int rc = os_mbuf_append(ctxt->om, report_ref, 2);
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
 
 // GATT characteristic access callback
 static int hid_chr_access(uint16_t conn_handle, uint16_t attr_handle,
