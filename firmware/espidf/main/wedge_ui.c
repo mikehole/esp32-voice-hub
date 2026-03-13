@@ -250,13 +250,15 @@ static void update_center_content(void) {
         lv_obj_clear_flag(center_text, LV_OBJ_FLAG_HIDDEN);
         
         const char* text = "";
-        bool bt_connected = bluetooth_hid_is_connected();
+        bt_state_t bt_state = bluetooth_hid_get_state();
         
-        if (!bt_connected) {
-            text = "Bluetooth\nnot connected";
-        } else {
+        if (bt_state == BT_STATE_OFF) {
+            text = "Starting\nBluetooth...";
+        } else if (bt_state == BT_STATE_ADVERTISING) {
+            text = "Waiting for\nPC to connect";
+        } else if (bt_state == BT_STATE_CONNECTED) {
             switch (selected_wedge) {
-                case 0: text = "Tap to\ngo back"; break;
+                case 0: text = "Tap to\nexit"; break;
                 case 1: text = "Previous\ntrack"; break;
                 case 2: text = "Next\ntrack"; break;
                 case 3: text = "Play /\nPause"; break;
@@ -265,6 +267,8 @@ static void update_center_content(void) {
                 case 6: text = "Mute"; break;
                 default: text = "Music\nControl"; break;
             }
+        } else {
+            text = "Connecting...";
         }
         lv_label_set_text(center_text, text);
     }
@@ -467,9 +471,38 @@ static void update_all_labels(void) {
     update_highlight();
 }
 
+// Track if we're in a BT mode (Music/Zoom)
+static bool bt_mode_active = false;
+
 // Switch to a different menu
 static void switch_menu(menu_id_t menu) {
+    menu_id_t old_menu = current_menu;
     current_menu = menu;
+    
+    // Handle resource switching for BT modes (Music, Zoom)
+    bool entering_bt_mode = (menu == MENU_MUSIC);  // Add MENU_ZOOM later
+    bool leaving_bt_mode = (old_menu == MENU_MUSIC) && (menu == MENU_MAIN);
+    
+    if (entering_bt_mode && !bt_mode_active) {
+        // Entering BT mode: stop wake word, start Bluetooth
+        ESP_LOGI(TAG, "Entering BT mode - stopping wake word, starting BT");
+        wakeword_stop();
+        vTaskDelay(pdMS_TO_TICKS(100));  // Let it settle
+        if (bluetooth_hid_init()) {
+            ESP_LOGI(TAG, "Bluetooth HID initialized");
+            bt_mode_active = true;
+        } else {
+            ESP_LOGE(TAG, "Bluetooth HID init failed!");
+        }
+    } else if (leaving_bt_mode && bt_mode_active) {
+        // Leaving BT mode: stop Bluetooth, restart wake word
+        ESP_LOGI(TAG, "Leaving BT mode - stopping BT, restarting wake word");
+        bluetooth_hid_deinit();
+        vTaskDelay(pdMS_TO_TICKS(100));  // Let it settle
+        wakeword_start();
+        bt_mode_active = false;
+        ESP_LOGI(TAG, "Wake word restarted");
+    }
     
     switch (menu) {
         case MENU_SETTINGS:
